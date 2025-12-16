@@ -12,7 +12,8 @@ export const FilterContext = React.createContext<DateFilterState>(calculateDateR
 export const MainLayout: React.FC = () => {
   const [dateRangeType, setDateRangeType] = useState<DateRangeType>('mes');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+
   const [filterState, setFilterState] = useState<DateFilterState>(calculateDateRange('mes', new Date()));
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -44,8 +45,12 @@ export const MainLayout: React.FC = () => {
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar />
-      <div className="flex-1 ml-64 flex flex-col relative">
+      <Sidebar
+        isExpanded={isSidebarExpanded}
+        onMouseEnter={() => setIsSidebarExpanded(true)}
+        onMouseLeave={() => setIsSidebarExpanded(false)}
+      />
+      <div className={`flex-1 flex flex-col relative transition-all duration-300 ${isSidebarExpanded ? 'ml-64' : 'ml-20'}`}>
         <header className="bg-white/60 backdrop-blur-xl h-24 px-8 flex items-center justify-between sticky top-0 z-10 shadow-sm border-b border-white/40">
           <div>
             <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Dashboard</h2>
@@ -53,10 +58,10 @@ export const MainLayout: React.FC = () => {
               {formatDateDisplay(filterState.startDate)} - {formatDateDisplay(filterState.endDate)}
             </p>
           </div>
-          <DateFilter 
-            selectedRange={dateRangeType} 
+          <DateFilter
+            selectedRange={dateRangeType}
             selectedDate={selectedDate}
-            onRangeChange={setDateRangeType} 
+            onRangeChange={setDateRangeType}
             onDateChange={setSelectedDate}
           />
         </header>
