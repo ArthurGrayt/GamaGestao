@@ -3,6 +3,7 @@ import { supabase } from '../services/supabase';
 import { useLocation } from 'react-router-dom';
 import { Search, MapPin, Mail, Phone, Building, User, X, Briefcase, ChevronRight, ArrowLeft, Calendar, CreditCard, Users, Edit2, Save, Trash2, CheckCircle2, Circle, Plus, ListChecks, ArrowDownAZ, ArrowUpAZ, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
+import { useNotifications } from '../contexts/NotificationContext';
 
 interface Cliente {
     id: string;
@@ -98,9 +99,25 @@ export const Clientes: React.FC = () => {
     const [loadingDocs, setLoadingDocs] = useState(false);
     const [savingDocs, setSavingDocs] = useState(false);
 
+    const { notifications, markAsRead } = useNotifications();
+
     useEffect(() => {
         fetchClientes();
     }, []);
+
+    // Mark notifications as read when viewing docs for a specific unit
+    useEffect(() => {
+        if (selectedClient && activeTab === 'docs' && selectedUnidadeId) {
+            const unitNotifications = notifications.filter(n =>
+                n.clientId === selectedClient.id &&
+                n.unityId === selectedUnidadeId
+            );
+
+            unitNotifications.forEach(n => {
+                markAsRead(n.id);
+            });
+        }
+    }, [selectedClient, activeTab, selectedUnidadeId, notifications, markAsRead]);
 
     useEffect(() => {
         if (selectedClient) {

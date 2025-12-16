@@ -4,6 +4,7 @@ import { Sidebar } from '../components/Sidebar';
 import { DateFilter } from '../components/DateFilter';
 import { ToastSystem } from '../components/ToastSystem';
 import { supabase } from '../services/supabase';
+import { NotificationProvider } from '../contexts/NotificationContext';
 import { DateRangeType, DateFilterState } from '../types';
 import { calculateDateRange, formatDateDisplay } from '../utils/dateUtils';
 
@@ -46,36 +47,38 @@ export const MainLayout: React.FC = () => {
   if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-gray-50/50 backdrop-blur-sm">Carregando...</div>;
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar
-        isExpanded={isSidebarExpanded}
-        onMouseEnter={() => setIsSidebarExpanded(true)}
-        onMouseLeave={() => setIsSidebarExpanded(false)}
-      />
-      <div className={`flex-1 flex flex-col relative transition-all duration-300 ${isSidebarExpanded ? 'ml-64' : 'ml-20'}`}>
-        {location.pathname !== '/clientes' && (
-          <header className="bg-white/60 backdrop-blur-xl h-24 px-8 flex items-center justify-between sticky top-0 z-10 shadow-sm border-b border-white/40">
-            <div>
-              <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Dashboard</h2>
-              <p className="text-sm text-slate-500 font-medium mt-1">
-                {formatDateDisplay(filterState.startDate)} - {formatDateDisplay(filterState.endDate)}
-              </p>
-            </div>
-            <DateFilter
-              selectedRange={dateRangeType}
-              selectedDate={selectedDate}
-              onRangeChange={setDateRangeType}
-              onDateChange={setSelectedDate}
-            />
-          </header>
-        )}
-        <main className="p-8 overflow-y-auto flex-1">
-          <FilterContext.Provider value={filterState}>
-            <Outlet />
-          </FilterContext.Provider>
-        </main>
+    <NotificationProvider>
+      <div className="flex min-h-screen">
+        <Sidebar
+          isExpanded={isSidebarExpanded}
+          onMouseEnter={() => setIsSidebarExpanded(true)}
+          onMouseLeave={() => setIsSidebarExpanded(false)}
+        />
+        <div className={`flex-1 flex flex-col relative transition-all duration-300 ${isSidebarExpanded ? 'ml-64' : 'ml-20'}`}>
+          {location.pathname !== '/clientes' && (
+            <header className="bg-white/60 backdrop-blur-xl h-24 px-8 flex items-center justify-between sticky top-0 z-10 shadow-sm border-b border-white/40">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Dashboard</h2>
+                <p className="text-sm text-slate-500 font-medium mt-1">
+                  {formatDateDisplay(filterState.startDate)} - {formatDateDisplay(filterState.endDate)}
+                </p>
+              </div>
+              <DateFilter
+                selectedRange={dateRangeType}
+                selectedDate={selectedDate}
+                onRangeChange={setDateRangeType}
+                onDateChange={setSelectedDate}
+              />
+            </header>
+          )}
+          <main className="p-8 overflow-y-auto flex-1">
+            <FilterContext.Provider value={filterState}>
+              <Outlet />
+            </FilterContext.Provider>
+          </main>
+        </div>
+        <ToastSystem />
       </div>
-      <ToastSystem />
-    </div>
+    </NotificationProvider>
   );
 };

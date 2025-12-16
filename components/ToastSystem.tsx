@@ -3,6 +3,7 @@ import { supabase } from '../services/supabase';
 import { useNavigate } from 'react-router-dom';
 import { X, AlertTriangle, ExternalLink } from 'lucide-react';
 import { format } from 'date-fns';
+import { useNotifications } from '../contexts/NotificationContext';
 
 interface Notification {
     id: string; // Composite key: clientId_unityId_docType
@@ -13,177 +14,162 @@ interface Notification {
     unityId: number;
 }
 
-const NOTIFICATION_SOUND = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjIwLjEwMAAAAAAAAAAAAAAA//uQZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWgAAAA0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABYaW5nAAAAEAAAAAEAAABXAAAIHwAGBgYGBgYKCgoKCgoODg4ODg4SEhISEhIWFhYWFhYaGhoaGhoeHh4eHh4iIiIiIiImJiYmJiYqKioqKiorKysrKysvLy8vLy8zMzMzMzM3Nzc3Nzc7Ozs7OztAQEBAQEBERERERERISEhISEhMTExMTExQUFBQUFBUVFRUVFRYWFhYWFhcXFxcXFxgYGBgYGBkZGRkZGRoaghoaGhwcHBwcHB0dHR0dHR4eHh4eHh8fHx8fHx/f39/f3+Dg4ODg4OHh4eHh4eLi4uLi4uPj4+Pj4+Tk5OTk5OXl5eXl5ebm5ubm5ufn5+fn5+jo6Ojo6OlpaWlpaWpqampqamtra2tra2xsbGxsbG1tbW1tbW5ubm5ubm9vb29vb3BwcHBwcHDw8PDw8PFxcXFxcXGxsbGxsbHx8fHx8fLy8vLy8vPz8/Pz8/T09PT09PU1NTU1NTY2NjY2Njc3Nzc3Nzg4ODg4ODk5OTk5OTp6enp6enr6+vr6+vv7+/v7+/z8/Pz8/P39/f39/f7+/v7+/v///8AAAA5AAAAAAAABgAAAABXAAAAAAAAAAAB//uQZAAABi0vS2w94AAAAADSDAAAAFuS9LbD3gAAAAANIMAAAAEAAAP8AAAAD/gAAA//uQZAAABi0vS2w94AAAAADSDAAAAFuS9LbD3gAAAAANIMAAAAEAAAP8AAAAD/gAAA//uQZAAABi0vS2w94AAAAADSDAAAAFuS9LbD3gAAAAANIMAAAAEAAAP8AAAAD/gAAA//uQZAAABi0vS2w94AAAAADSDAAAAFuS9LbD3gAAAAANIMAAAAEAAAP8AAAAD/gAAA';
+// Global Audio Context & Buffer
+let audioCtx: AudioContext | null = null;
+let notificationBuffer: AudioBuffer | null = null;
 
-// Global audio object to reuse and unlock
-const audioPlayer = new Audio(NOTIFICATION_SOUND);
-audioPlayer.volume = 0.5;
+// Initialize Audio Context and Load Sound
+const initAudio = async () => {
+    // 1. Create Context if missing
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
 
-const playNotificationSound = () => {
-    // Attempt play. If locked, it rejects.
-    audioPlayer.currentTime = 0;
-    audioPlayer.play().catch(e => {
-        console.warn('Audio blocked, waiting for interaction...', e);
-    });
+    // 2. Resume if suspended (browser protection)
+    if (audioCtx.state === 'suspended') {
+        try {
+            await audioCtx.resume();
+        } catch (e) {
+            console.warn('Audio resume failed:', e);
+        }
+    }
+
+    // 3. Fetch and Decode MP3 if missing
+    if (!notificationBuffer && audioCtx) {
+        try {
+            const response = await fetch('/notify.mp3');
+            const arrayBuffer = await response.arrayBuffer();
+            notificationBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+            console.log('✅ Notification sound loaded (/notify.mp3)');
+        } catch (e) {
+            console.error('❌ Failed to load /notify.mp3:', e);
+        }
+    }
 };
 
-export const ToastSystem: React.FC = () => {
-    const [queue, setQueue] = useState<Notification[]>([]);
-    const [currentNotification, setCurrentNotification] = useState<Notification | null>(null);
+const playNotificationSound = async () => {
+    try {
+        // Ensure everything is ready
+        if (!audioCtx || !notificationBuffer) {
+            await initAudio();
+        }
+
+        if (!audioCtx || !notificationBuffer) return;
+
+        // Force resume again just in case
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume().catch(() => { });
+        }
+
+        // Create Source
+        const source = audioCtx.createBufferSource();
+        source.buffer = notificationBuffer;
+
+        // Create Gain (Volume)
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = 0.5;
+
+        // Connect and Play
+        source.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        source.start(0);
+
+    } catch (e) {
+        console.error('Audio play error:', e);
+    }
+};
+
+const ToastSystemImpl: React.FC<{ notifications: any[], markClientAsRead: (id: string) => void }> = ({ notifications, markClientAsRead }) => {
+    const [queue, setQueue] = useState<any[]>([]);
+    const [current, setCurrent] = useState<any>(null);
     const [isVisible, setIsVisible] = useState(false);
+    const processedRef = React.useRef<Set<string>>(new Set());
     const navigate = useNavigate();
 
-    // Unlock Audio Context on first interaction
+    // Sync state with props
     useEffect(() => {
-        const unlockAudio = () => {
-            // Play silent/short and pause immediately to whitelist the element
-            audioPlayer.play().then(() => {
-                audioPlayer.pause();
-                audioPlayer.currentTime = 0;
-            }).catch(() => { });
-
-            // Remove listeners once unlocked
-            document.removeEventListener('click', unlockAudio);
-            document.removeEventListener('keydown', unlockAudio);
-        };
-
-        document.addEventListener('click', unlockAudio);
-        document.addEventListener('keydown', unlockAudio);
-
-        return () => {
-            document.removeEventListener('click', unlockAudio);
-            document.removeEventListener('keydown', unlockAudio);
-        };
-    }, []);
-
-    // Fetch notifications on mount
-    useEffect(() => {
-        const fetchExpiringDocs = async () => {
-            try {
-                // Fetch all clients with units and docs
-                const { data, error } = await supabase
-                    .from('clientes')
-                    .select(`
-                        id,
-                        nome_fantasia,
-                        unidades (
-                            id,
-                            clientes_documentacoes (
-                                vencimento_pgr,
-                                vencimento_pcmso,
-                                vigencia_dir_aep,
-                                esocial_procuracao
-                            )
-                        )
-                    `);
-
-                if (error || !data) return;
-
-                const today = new Date();
-                const thirtyDaysFromNow = new Date();
-                thirtyDaysFromNow.setDate(today.getDate() + 30);
-
-                const newNotifications: Notification[] = [];
-                const readNotifications = JSON.parse(localStorage.getItem('read_notifications') || '[]');
-
-                data.forEach(cliente => {
-                    cliente.unidades?.forEach((unidade: any) => {
-                        unidade.clientes_documentacoes?.forEach((doc: any) => {
-                            const check = (dateStr: string | undefined, label: string) => {
-                                if (!dateStr) return;
-                                const date = new Date(dateStr);
-                                if (date >= today && date <= thirtyDaysFromNow) {
-                                    const notifId = `${cliente.id}_${unidade.id}_${label}`;
-                                    // Only add if not read
-                                    if (!readNotifications.includes(notifId)) {
-                                        newNotifications.push({
-                                            id: notifId,
-                                            clientId: cliente.id,
-                                            clientName: cliente.nome_fantasia,
-                                            docType: label,
-                                            date: format(date, 'dd/MM/yyyy'),
-                                            unityId: unidade.id
-                                        });
-                                    }
-                                }
-                            };
-
-                            check(doc.vencimento_pgr, 'PGR');
-                            check(doc.vencimento_pcmso, 'PCMSO');
-                            check(doc.vigencia_dir_aep, 'DIR/AEP');
-                            check(doc.esocial_procuracao, 'Procuração eSocial');
-                        });
-                    });
-                });
-
-                if (newNotifications.length > 0) {
-                    setQueue(newNotifications);
-                }
-            } catch (err) {
-                console.error('Error fetching notifications:', err);
+        // Group by Client
+        const grouped = notifications.reduce((acc, curr) => {
+            if (!acc[curr.clientId]) {
+                acc[curr.clientId] = {
+                    clientId: curr.clientId,
+                    clientName: curr.clientName,
+                    docs: [],
+                    date: curr.date,
+                    unityId: curr.unityId
+                };
             }
-        };
+            if (!acc[curr.clientId].docs.includes(curr.docType)) {
+                acc[curr.clientId].docs.push(curr.docType);
+            }
+            return acc;
+        }, {} as Record<string, any>);
 
-        fetchExpiringDocs();
-    }, []);
+        const candidates = Object.values(grouped);
+        const newItems = candidates.filter((c: any) => !processedRef.current.has(c.clientId));
 
-    // Process Queue
+        if (newItems.length > 0) {
+            newItems.forEach((c: any) => processedRef.current.add(c.clientId));
+            setQueue(prev => [...prev, ...newItems]);
+        }
+    }, [notifications]);
+
     useEffect(() => {
-        if (!currentNotification && queue.length > 0) {
-            // Start next notification
+        if (!current && queue.length > 0) {
             const next = queue[0];
             const remaining = queue.slice(1);
-
             setQueue(remaining);
-            setCurrentNotification(next);
+            setCurrent(next);
 
-            // Small delay before showing to ensure animation triggers
-            setTimeout(() => setIsVisible(true), 100);
+            // Play sound and wait for it to be ready (mostly context resume) before showing
+            // This prevents "toast first, sound later" delay
+            playNotificationSound().finally(() => {
+                setTimeout(() => setIsVisible(true), 50); // Reduced delay since we already awaited sound
+            });
         }
-    }, [currentNotification, queue]);
+    }, [current, queue]);
 
-    // Auto-dismiss logic
+    // 4. Auto Dismiss
     useEffect(() => {
         let timer: NodeJS.Timeout;
-        if (isVisible && currentNotification) {
+        if (isVisible && current) {
             timer = setTimeout(() => {
                 handleDismiss();
-            }, 6000); // Show for 6 seconds
+            }, 6000);
         }
         return () => clearTimeout(timer);
-    }, [isVisible, currentNotification]);
+    }, [isVisible, current]);
 
     const handleDismiss = () => {
         setIsVisible(false);
-        // Wait for fade out animation (500ms) + 1s delay as requested
         setTimeout(() => {
-            setCurrentNotification(null);
+            setCurrent(null);
         }, 1500);
     };
 
     const handleMarkAsRead = (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (!currentNotification) return;
-
-        const readNotifications = JSON.parse(localStorage.getItem('read_notifications') || '[]');
-        localStorage.setItem('read_notifications', JSON.stringify([...readNotifications, currentNotification.id]));
-
+        if (!current) return;
+        markClientAsRead(current.clientId); // Marks ALL docs for this client as read
         handleDismiss();
     };
 
     const handleClick = () => {
-        if (!currentNotification) return;
+        if (!current) return;
         navigate('/clientes', {
             state: {
-                openClientId: currentNotification.clientId,
+                openClientId: current.clientId,
                 openTab: 'docs',
-                targetUnitId: currentNotification.unityId // Optional: could implement deep linking to unit too
+                targetUnitId: current.unityId
             }
         });
         handleDismiss();
     };
 
-    if (!currentNotification) return null;
+    if (!current) return null;
+
+    const docText = current.docs.join(', ');
+    const isMultiple = current.docs.length > 1;
 
     return (
         <div
@@ -194,7 +180,7 @@ export const ToastSystem: React.FC = () => {
         >
             <div className="bg-white border-l-4 border-amber-500 rounded-lg shadow-2xl p-4 flex items-start gap-3 relative overflow-hidden group">
 
-                {/* Progress bar simulation (optional visual flare) */}
+                {/* Progress Bar */}
                 <div className={`absolute bottom-0 left-0 h-1 bg-amber-100 w-full`}>
                     <div className={`h-full bg-amber-500 transition-all duration-[6000ms] ease-linear w-0 ${isVisible ? 'w-full' : ''}`}></div>
                 </div>
@@ -204,23 +190,53 @@ export const ToastSystem: React.FC = () => {
                 </div>
 
                 <div className="flex-1 pr-6">
-                    <h4 className="font-bold text-slate-800 text-sm">{currentNotification.clientName}</h4>
+                    <h4 className="font-bold text-slate-800 text-sm">{current.clientName}</h4>
                     <p className="text-xs text-slate-600 mt-1">
-                        O documento <span className="font-semibold text-amber-600">{currentNotification.docType}</span> está vencendo dia {currentNotification.date}.
+                        {isMultiple ? 'Os documentos' : 'O documento'} <span className="font-semibold text-amber-600">{docText}</span> {isMultiple ? 'estão vencendo' : 'está vencendo'} dia {current.date}.
                     </p>
-                    <div className="mt-2 flex items-center gap-1 text-[10px] text-blue-600 font-medium">
-                        Ver documentação <ExternalLink size={10} />
+                    <div className="mt-2 flex items-center gap-3 text-[10px] font-medium">
+                        <span className="text-blue-600 flex items-center gap-1">
+                            Ver documentação <ExternalLink size={10} />
+                        </span>
+                        <button
+                            onClick={handleMarkAsRead}
+                            className="text-slate-400 hover:text-slate-600 hover:underline flex items-center gap-1 transition-colors z-10"
+                        >
+                            Marcar como Lida
+                        </button>
                     </div>
                 </div>
 
                 <button
                     onClick={handleMarkAsRead}
                     className="absolute top-2 right-2 p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
-                    title="Marcar como lida"
                 >
                     <X size={14} />
                 </button>
             </div>
         </div>
     );
+};
+
+// Export Main Component (Wrapper)
+export const ToastSystem: React.FC = () => {
+    // Audio Init triggers
+    useEffect(() => {
+        const unlock = () => {
+            initAudio();
+            if (audioCtx?.state === 'running' && notificationBuffer) {
+                document.removeEventListener('click', unlock);
+                document.removeEventListener('keydown', unlock);
+            }
+        };
+        document.addEventListener('click', unlock);
+        document.addEventListener('keydown', unlock);
+        return () => {
+            document.removeEventListener('click', unlock);
+            document.removeEventListener('keydown', unlock);
+        };
+    }, []);
+
+    const { notifications, markClientAsRead } = useNotifications();
+    return <ToastSystemImpl notifications={notifications} markClientAsRead={markClientAsRead} />;
 };

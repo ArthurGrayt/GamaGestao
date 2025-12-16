@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Wallet, Stethoscope, Briefcase, ClipboardList, LogOut, Building2, MessageSquare } from 'lucide-react';
 import { supabase } from '../services/supabase';
+import { useNotifications } from '../contexts/NotificationContext';
 
 interface SidebarProps {
   isExpanded: boolean;
@@ -11,6 +12,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ isExpanded, onMouseEnter, onMouseLeave }) => {
   const navigate = useNavigate();
+  const { unreadCount } = useNotifications();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -50,7 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isExpanded, onMouseEnter, onMo
             key={item.path}
             to={item.path}
             className={({ isActive }) =>
-              `flex items-center px-4 py-3.5 rounded-2xl transition-all duration-300 relative overflow-hidden ${isActive
+              `flex items-center px-4 py-3.5 rounded-2xl transition-all duration-300 relative ${isActive
                 ? 'bg-white shadow-md shadow-slate-100 text-blue-600 font-semibold'
                 : 'text-slate-500 hover:bg-white/50 hover:text-slate-800'
               }`
@@ -58,8 +60,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ isExpanded, onMouseEnter, onMo
           >
             {({ isActive }) => (
               <>
-                <div className={`transition-colors duration-300 min-w-[1.25rem] flex justify-center ${isActive ? 'text-blue-600' : 'text-slate-400'}`}>
+                <div className={`transition-colors duration-300 min-w-[1.25rem] flex justify-center relative ${isActive ? 'text-blue-600' : 'text-slate-400'}`}>
                   {item.icon}
+                  {item.name === 'Clientes' && unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1.5 w-4 h-4 bg-red-500 text-white text-[10px] sm:text-[9px] flex items-center justify-center rounded-full border-2 border-white/80 shadow-sm animate-pulse">
+                      {unreadCount}
+                    </span>
+                  )}
                 </div>
                 <span className={`tracking-wide text-sm whitespace-nowrap transition-all duration-300 ml-3 ${isExpanded ? 'opacity-100' : 'opacity-0'}`}>{item.name}</span>
               </>
