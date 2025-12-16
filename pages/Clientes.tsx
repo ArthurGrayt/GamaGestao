@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabase';
+import { useLocation } from 'react-router-dom';
 import { Search, MapPin, Mail, Phone, Building, User, X, Briefcase, ChevronRight, ArrowLeft, Calendar, CreditCard, Users, Edit2, Save, Trash2, CheckCircle2, Circle, Plus, ListChecks, ArrowDownAZ, ArrowUpAZ, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -76,6 +77,7 @@ export const Clientes: React.FC = () => {
 
     // Drill-down state for Colaborador Details
     const [selectedColaborador, setSelectedColaborador] = useState<Colaborador | null>(null);
+    const location = useLocation();
 
     // Edit Mode State
     const [isEditing, setIsEditing] = useState(false);
@@ -235,6 +237,23 @@ export const Clientes: React.FC = () => {
             setLoading(false);
         }
     };
+
+    // Deep Linking Effect
+    useEffect(() => {
+        const state = (location as any).state;
+        if (state?.openClientId && clientes.length > 0) {
+            const targetClient = clientes.find(c => c.id === state.openClientId);
+            if (targetClient) {
+                setSelectedClient(targetClient);
+                if (state.openTab === 'docs') {
+                    setActiveTab('docs');
+                }
+                if (state.targetUnitId) {
+                    setSelectedUnidadeId(state.targetUnitId);
+                }
+            }
+        }
+    }, [location, clientes]);
 
     const fetchColaboradores = async (clienteId: string) => {
         setLoadingColab(true);
