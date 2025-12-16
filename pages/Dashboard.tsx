@@ -63,18 +63,18 @@ export const Dashboard: React.FC = () => {
           .gte('data_atendimento', prevStart)
           .lte('data_atendimento', prevEnd);
 
-         // 4. Tasks (Kanban Done)
-         const { count: currTask } = await supabase.from('kanban')
-         .select('*', { count: 'exact', head: true })
-         .eq('status', 'concluido')
-         .gte('concluido_em', startDate)
-         .lte('concluido_em', endDate);
+        // 4. Tasks (Kanban Done)
+        const { count: currTask } = await supabase.from('kanban')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'concluido')
+          .gte('concluido_em', startDate)
+          .lte('concluido_em', endDate);
 
-       const { count: prevTask } = await supabase.from('kanban')
-         .select('*', { count: 'exact', head: true })
-         .eq('status', 'concluido')
-         .gte('concluido_em', prevStart)
-         .lte('concluido_em', prevEnd);
+        const { count: prevTask } = await supabase.from('kanban')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'concluido')
+          .gte('concluido_em', prevStart)
+          .lte('concluido_em', prevEnd);
 
 
         const totalCurrRev = currRev?.reduce((acc, curr) => acc + (Number(curr.valor_original) || 0), 0) || 0;
@@ -87,11 +87,11 @@ export const Dashboard: React.FC = () => {
           tasks: { current: currTask || 0, prev: prevTask || 0 },
         });
 
-        // Simplified Chart Data - Normalized for visual comparison
+        // Simplified Chart Data - No longer normalized
         setChartData([
           { name: 'Receita', Atual: totalCurrRev, Anterior: totalPrevRev },
-          { name: 'Clientes (x100)', Atual: (currCli || 0) * 100, Anterior: (prevCli || 0) * 100 },
-          { name: 'Atendimentos (x10)', Atual: (currApp || 0) * 10, Anterior: (prevApp || 0) * 10 },
+          { name: 'Clientes', Atual: currCli || 0, Anterior: prevCli || 0 },
+          { name: 'Atendimentos', Atual: currApp || 0, Anterior: prevApp || 0 },
         ]);
 
       } catch (error) {
@@ -138,42 +138,75 @@ export const Dashboard: React.FC = () => {
         />
       </div>
 
-      <div className="bg-white/60 backdrop-blur-xl p-8 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50">
-        <h3 className="text-lg font-bold text-slate-800 mb-8 tracking-tight">Comparativo de Performance</h3>
-        <div className="h-96 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} barSize={40}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(0,0,0,0.05)" />
-              <XAxis 
-                dataKey="name" 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{fill: '#64748b', fontSize: 12}} 
-                dy={10}
-              />
-              <YAxis 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{fill: '#64748b', fontSize: 12}} 
-              />
-              <Tooltip 
-                cursor={{fill: 'rgba(0,0,0,0.02)'}}
-                contentStyle={{
-                    backgroundColor: 'rgba(255,255,255,0.8)', 
-                    backdropFilter: 'blur(8px)', 
-                    borderRadius: '16px', 
-                    border: '1px solid rgba(255,255,255,0.5)',
-                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                }}
-                formatter={(value: number, name: string) => {
-                    if (name === 'Receita') return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
-                    return value;
-                }}
-              />
-              <Bar dataKey="Atual" fill="#3b82f6" radius={[8, 8, 8, 8]} />
-              <Bar dataKey="Anterior" fill="#e2e8f0" radius={[8, 8, 8, 8]} />
-            </BarChart>
-          </ResponsiveContainer>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Chart 1: Revenue */}
+        <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50">
+          <h3 className="text-md font-bold text-slate-800 mb-6 tracking-tight flex items-center gap-2">
+            <DollarSign size={18} className="text-blue-500" />
+            Receita
+          </h3>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={[chartData[0] || {}]} barSize={32}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(0,0,0,0.05)" />
+                <XAxis dataKey="name" hide />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
+                <Tooltip
+                  cursor={{ fill: 'rgba(0,0,0,0.02)' }}
+                  contentStyle={{ backgroundColor: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(8px)', borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+                  formatter={(value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)}
+                />
+                <Bar dataKey="Atual" name="Atual" fill="#3b82f6" radius={[4, 4, 4, 4]} />
+                <Bar dataKey="Anterior" name="Anterior" fill="#e2e8f0" radius={[4, 4, 4, 4]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Chart 2: Clients */}
+        <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50">
+          <h3 className="text-md font-bold text-slate-800 mb-6 tracking-tight flex items-center gap-2">
+            <Users size={18} className="text-purple-500" />
+            Novos Clientes
+          </h3>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={[chartData[1] || {}]} barSize={32}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(0,0,0,0.05)" />
+                <XAxis dataKey="name" hide />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} allowDecimals={false} />
+                <Tooltip
+                  cursor={{ fill: 'rgba(0,0,0,0.02)' }}
+                  contentStyle={{ backgroundColor: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(8px)', borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+                />
+                <Bar dataKey="Atual" name="Atual" fill="#a855f7" radius={[4, 4, 4, 4]} />
+                <Bar dataKey="Anterior" name="Anterior" fill="#e2e8f0" radius={[4, 4, 4, 4]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Chart 3: Appointments */}
+        <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50">
+          <h3 className="text-md font-bold text-slate-800 mb-6 tracking-tight flex items-center gap-2">
+            <Stethoscope size={18} className="text-pink-500" />
+            Atendimentos
+          </h3>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={[chartData[2] || {}]} barSize={32}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(0,0,0,0.05)" />
+                <XAxis dataKey="name" hide />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} allowDecimals={false} />
+                <Tooltip
+                  cursor={{ fill: 'rgba(0,0,0,0.02)' }}
+                  contentStyle={{ backgroundColor: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(8px)', borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+                />
+                <Bar dataKey="Atual" name="Atual" fill="#ec4899" radius={[4, 4, 4, 4]} />
+                <Bar dataKey="Anterior" name="Anterior" fill="#e2e8f0" radius={[4, 4, 4, 4]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabase';
-import { Search, MapPin, Mail, Phone, Building, User, X, Briefcase, ChevronRight, ArrowLeft, Calendar, CreditCard, Users, Edit2, Save, Trash2, CheckCircle2, Circle, Plus, ListChecks } from 'lucide-react';
+import { Search, MapPin, Mail, Phone, Building, User, X, Briefcase, ChevronRight, ArrowLeft, Calendar, CreditCard, Users, Edit2, Save, Trash2, CheckCircle2, Circle, Plus, ListChecks, ArrowDownAZ, ArrowUpAZ } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface Cliente {
@@ -13,6 +13,7 @@ interface Cliente {
     endereco: string;
     status: string;
     img_url?: string;
+    clientefrequente?: boolean;
 }
 
 interface Colaborador {
@@ -31,18 +32,21 @@ export const Clientes: React.FC = () => {
     const [clientes, setClientes] = useState<Cliente[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState('Todos');
+    const [typeFilter, setTypeFilter] = useState('Todos'); // 'Todos', 'Frequente', 'Esporádico'
 
     // Selected Client for Details View
     const [selectedClient, setSelectedClient] = useState<Cliente | null>(null);
     const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
     const [loadingColab, setLoadingColab] = useState(false);
+    const [colabSearchTerm, setColabSearchTerm] = useState('');
+    const [colabSortOrder, setColabSortOrder] = useState<'asc' | 'desc'>('asc');
 
     // Drill-down state for Colaborador Details
     const [selectedColaborador, setSelectedColaborador] = useState<Colaborador | null>(null);
 
     // Edit Mode State
     const [isEditing, setIsEditing] = useState(false);
+    const [isCreating, setIsCreating] = useState(false);
     const [editForm, setEditForm] = useState<Partial<Cliente>>({});
     const [saving, setSaving] = useState(false);
 
@@ -60,7 +64,10 @@ export const Clientes: React.FC = () => {
             fetchColaboradores(selectedClient.id);
             setSelectedColaborador(null); // Reset drill-down when opening a new client
             setIsEditing(false); // Reset edit mode
+            setIsCreating(false);
             setEditForm({}); // Reset form
+            setColabSearchTerm(''); // Reset colab search
+            setColabSortOrder('asc'); // Reset colab sort
         }
     }, [selectedClient]);
 
@@ -113,6 +120,15 @@ export const Clientes: React.FC = () => {
         setSelectedClient(null);
         setSelectedColaborador(null);
         setIsEditing(false);
+        setIsCreating(false);
+        setEditForm({});
+    };
+
+    const handleCreateClick = () => {
+        setIsCreating(true);
+        setIsEditing(true);
+        setEditForm({ clientefrequente: false, status: 'Ativo' }); // Default values
+        setSelectedClient(null); // Ensure no client is selected
     };
 
     const handleEditClick = () => {
@@ -128,27 +144,42 @@ export const Clientes: React.FC = () => {
     };
 
     const handleSaveClient = async () => {
-        if (!selectedClient || !editForm) return;
+        if (!editForm) return;
         setSaving(true);
         try {
-            const { error } = await supabase
-                .from('clientes')
-                .update(editForm)
-                .eq('id', selectedClient.id);
+            if (isCreating) {
+                // CREATE Logic
+                const { data, error } = await supabase
+                    .from('clientes')
+                    .insert(editForm)
+                    .select()
+                    .single();
 
-            if (error) throw error;
+                if (error) throw error;
 
-            // Update local state
-            const updatedClient = { ...selectedClient, ...editForm } as Cliente;
-            setSelectedClient(updatedClient);
+                setClientes([...clientes, data]);
+                handleClosePanel(); // Close after create
+                // Optional: success toast
+            } else {
+                // UPDATE Logic
+                if (!selectedClient) return;
 
-            setClientes(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
+                const { error } = await supabase
+                    .from('clientes')
+                    .update(editForm)
+                    .eq('id', selectedClient.id);
 
-            setIsEditing(false);
-            // Optional: Add success toast here
+                if (error) throw error;
+
+                // Update local state
+                const updatedClient = { ...selectedClient, ...editForm } as Cliente;
+                setSelectedClient(updatedClient);
+                setClientes(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
+                setIsEditing(false);
+            }
         } catch (error) {
-            console.error('Erro ao atualizar cliente:', error);
-            // Optional: Add error toast here
+            console.error('Erro ao salvar cliente:', error);
+            alert('Erro ao salvar cliente. Verifique os dados.');
         } finally {
             setSaving(false);
         }
@@ -202,12 +233,12 @@ export const Clientes: React.FC = () => {
             (cliente.razao_social?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
             (cliente.cnpj || '').includes(searchTerm);
 
-        const matchesStatus = statusFilter === 'Todos' ||
-            (cliente.status?.toLowerCase() === statusFilter.toLowerCase());
+        const matchesType = typeFilter === 'Todos' ||
+            (typeFilter === 'Frequente' && cliente.clientefrequente) ||
+            (typeFilter === 'Esporádico' && !cliente.clientefrequente);
 
-        return matchesSearch && matchesStatus;
+        return matchesSearch && matchesType;
     });
-
     return (
         <div className="relative h-full flex flex-col">
             {/* Header & Filters */}
@@ -220,7 +251,7 @@ export const Clientes: React.FC = () => {
                 <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
                     {/* Add Client Button */}
                     <button
-                        onClick={() => alert("Funcionalidade de adicionar cliente em breve!")}
+                        onClick={handleCreateClick}
                         className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-xl transition-all shadow-lg shadow-blue-500/20 active:scale-95"
                     >
                         <Plus size={18} />
@@ -234,8 +265,8 @@ export const Clientes: React.FC = () => {
                             if (isSelectionMode) setSelectedClients([]); // Clear selection when turning off
                         }}
                         className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all border ${isSelectionMode
-                                ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold'
-                                : 'bg-white border-white/60 text-slate-600 hover:bg-white/80'
+                            ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold'
+                            : 'bg-white border-white/60 text-slate-600 hover:bg-white/80'
                             }`}
                         title={isSelectionMode ? "Cancelar Seleção" : "Selecionar Clientes"}
                     >
@@ -270,14 +301,13 @@ export const Clientes: React.FC = () => {
                             </div>
 
                             <select
-                                value={statusFilter}
-                                onChange={(e) => setStatusFilter(e.target.value)}
+                                value={typeFilter}
+                                onChange={(e) => setTypeFilter(e.target.value)}
                                 className="px-4 py-2.5 bg-white/60 border border-white/60 rounded-xl text-sm font-medium text-slate-700 outline-none cursor-pointer hover:bg-white/80 transition-all backdrop-blur-sm shadow-sm"
                             >
-                                <option value="Todos">Status</option>
-                                <option value="Ativo">Ativo</option>
-                                <option value="Inativo">Inativo</option>
-                                <option value="Pendente">Pendente</option>
+                                <option value="Todos">Todos</option>
+                                <option value="Frequente">Frequente</option>
+                                <option value="Esporádico">Esporádico</option>
                             </select>
                         </>
                     )}
@@ -330,11 +360,8 @@ export const Clientes: React.FC = () => {
                                                 <p className="text-xs text-slate-500">{cliente.cnpj || 'CNPJ não informado'}</p>
                                             </div>
                                         </div>
-                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${cliente.status?.toLowerCase() === 'ativo' ? 'bg-green-50 text-green-600 border-green-100' :
-                                            cliente.status?.toLowerCase() === 'inativo' ? 'bg-red-50 text-red-600 border-red-100' :
-                                                'bg-slate-50 text-slate-500 border-slate-100'
-                                            }`}>
-                                            {cliente.status || 'Indefinido'}
+                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${cliente.clientefrequente ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
+                                            {cliente.clientefrequente ? 'Frequente' : 'Esporádico'}
                                         </span>
                                     </div>
 
@@ -374,7 +401,7 @@ export const Clientes: React.FC = () => {
 
             {/* Details Slide-Over (Modal) */}
             {
-                selectedClient && (
+                (selectedClient || isCreating) && (
                     <div className="fixed inset-0 z-50 flex justify-end">
                         {/* Backdrop */}
                         <div
@@ -397,12 +424,12 @@ export const Clientes: React.FC = () => {
                                         </button>
                                     )}
                                     <h2 className="text-xl font-bold text-slate-800">
-                                        {selectedColaborador ? 'Detalhes do Colaborador' : 'Detalhes do Cliente'}
+                                        {isCreating ? 'Novo Cliente' : (selectedColaborador ? 'Detalhes do Colaborador' : 'Detalhes do Cliente')}
                                     </h2>
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    {!selectedColaborador && !isEditing && (
+                                    {!isCreating && !selectedColaborador && !isEditing && (
                                         <button
                                             onClick={handleEditClick}
                                             className="p-2 hover:bg-white rounded-full text-slate-500 hover:text-blue-600 transition-colors"
@@ -509,21 +536,20 @@ export const Clientes: React.FC = () => {
                                                             />
                                                             <select
                                                                 className="w-full text-xs font-bold uppercase tracking-wide bg-white border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                                                value={editForm.status || ''}
-                                                                onChange={e => setEditForm({ ...editForm, status: e.target.value })}
+                                                                value={editForm.clientefrequente ? 'true' : 'false'}
+                                                                onChange={e => setEditForm({ ...editForm, clientefrequente: e.target.value === 'true' })}
                                                             >
-                                                                <option value="Ativo">Ativo</option>
-                                                                <option value="Inativo">Inativo</option>
-                                                                <option value="Pendente">Pendente</option>
+                                                                <option value="false">Esporádico</option>
+                                                                <option value="true">Frequente</option>
                                                             </select>
                                                         </div>
                                                     ) : (
                                                         <>
-                                                            <h3 className="text-lg font-bold text-slate-800">{selectedClient.nome_fantasia}</h3>
-                                                            <p className="text-sm text-slate-500">{selectedClient.razao_social}</p>
-                                                            <span className={`mt-2 inline-block px-2 py-0.5 rounded text-xs font-bold border ${selectedClient.status?.toLowerCase() === 'ativo' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-slate-50 text-slate-500 border-slate-100'
+                                                            <h3 className="text-lg font-bold text-slate-800">{selectedClient?.nome_fantasia}</h3>
+                                                            <p className="text-sm text-slate-500">{selectedClient?.razao_social}</p>
+                                                            <span className={`mt-2 inline-block px-2 py-0.5 rounded text-xs font-bold border ${selectedClient?.clientefrequente ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-slate-50 text-slate-500 border-slate-100'
                                                                 }`}>
-                                                                {selectedClient.status}
+                                                                {selectedClient?.clientefrequente ? 'Frequente' : 'Esporádico'}
                                                             </span>
                                                         </>
                                                     )}
@@ -540,7 +566,7 @@ export const Clientes: React.FC = () => {
                                                             onChange={e => setEditForm({ ...editForm, cnpj: e.target.value })}
                                                         />
                                                     ) : (
-                                                        <span className="text-sm font-medium text-slate-700">{selectedClient.cnpj || '-'}</span>
+                                                        <span className="text-sm font-medium text-slate-700">{selectedClient?.cnpj || '-'}</span>
                                                     )}
                                                 </div>
                                                 <div className="flex flex-col py-2 border-b border-dashed border-slate-200">
@@ -552,7 +578,7 @@ export const Clientes: React.FC = () => {
                                                             onChange={e => setEditForm({ ...editForm, email: e.target.value })}
                                                         />
                                                     ) : (
-                                                        <span className="text-sm font-medium text-slate-700">{selectedClient.email || '-'}</span>
+                                                        <span className="text-sm font-medium text-slate-700">{selectedClient?.email || '-'}</span>
                                                     )}
                                                 </div>
                                                 <div className="flex flex-col py-2 border-b border-dashed border-slate-200">
@@ -564,7 +590,7 @@ export const Clientes: React.FC = () => {
                                                             onChange={e => setEditForm({ ...editForm, telefone: e.target.value })}
                                                         />
                                                     ) : (
-                                                        <span className="text-sm font-medium text-slate-700">{selectedClient.telefone || '-'}</span>
+                                                        <span className="text-sm font-medium text-slate-700">{selectedClient?.telefone || '-'}</span>
                                                     )}
                                                 </div>
                                                 <div className="pt-2">
@@ -577,7 +603,7 @@ export const Clientes: React.FC = () => {
                                                         />
                                                     ) : (
                                                         <span className="text-sm font-medium text-slate-700 block bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                                            {selectedClient.endereco || 'Endereço não cadastrado'}
+                                                            {selectedClient?.endereco || 'Endereço não cadastrado'}
                                                         </span>
                                                     )}
                                                 </div>
@@ -590,7 +616,7 @@ export const Clientes: React.FC = () => {
                                                             disabled={saving}
                                                             className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/20"
                                                         >
-                                                            {saving ? 'Salvando...' : <><Save size={18} /> Salvar Alterações</>}
+                                                            {saving ? 'Salvando...' : <><Save size={18} /> {isCreating ? 'Criar Cliente' : 'Salvar Alterações'}</>}
                                                         </button>
                                                         <button
                                                             onClick={handleCancelEdit}
@@ -618,6 +644,27 @@ export const Clientes: React.FC = () => {
                                                     </span>
                                                 </h3>
 
+                                                {/* Search and Sort for Collaborators */}
+                                                <div className="flex items-center gap-2 mb-4">
+                                                    <div className="relative flex-1">
+                                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Buscar colaborador..."
+                                                            value={colabSearchTerm}
+                                                            onChange={(e) => setColabSearchTerm(e.target.value)}
+                                                            className="w-full pl-9 pr-4 py-2 bg-white/60 border border-white/60 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-700 placeholder:text-slate-400"
+                                                        />
+                                                    </div>
+                                                    <button
+                                                        onClick={() => setColabSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                                                        className="p-2 bg-white/60 border border-white/60 rounded-xl hover:bg-white transition-colors text-slate-500 hover:text-blue-600"
+                                                        title={colabSortOrder === 'asc' ? "Ordenar Z-A" : "Ordenar A-Z"}
+                                                    >
+                                                        {colabSortOrder === 'asc' ? <ArrowDownAZ size={18} /> : <ArrowUpAZ size={18} />}
+                                                    </button>
+                                                </div>
+
                                                 {loadingColab ? (
                                                     <div className="text-center py-8 text-slate-400">Carregando colaboradores...</div>
                                                 ) : colaboradores.length === 0 ? (
@@ -626,27 +673,34 @@ export const Clientes: React.FC = () => {
                                                     </div>
                                                 ) : (
                                                     <div className="space-y-3">
-                                                        {colaboradores.map(colab => (
-                                                            <div
-                                                                key={colab.id}
-                                                                onClick={() => setSelectedColaborador(colab)}
-                                                                className="bg-white/60 p-3 rounded-2xl border border-white/60 flex items-center gap-3 shadow-sm hover:shadow-md hover:bg-white hover:border-blue-200 cursor-pointer transition-all group"
-                                                            >
-                                                                <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-500 shrink-0 group-hover:bg-blue-500 group-hover:text-white transition-colors">
-                                                                    <User size={16} />
-                                                                </div>
-                                                                <div className="flex-1 min-w-0">
-                                                                    <p className="text-sm font-bold text-slate-800 truncate">{colab.nome}</p>
-                                                                    <div className="flex items-center gap-2 text-xs text-slate-500">
-                                                                        <span className="flex items-center gap-1 truncate">
-                                                                            <Briefcase size={10} />
-                                                                            {colab.cargos?.nome || 'Cargo n/a'}
-                                                                        </span>
+                                                        {colaboradores
+                                                            .filter(colab => colab.nome.toLowerCase().includes(colabSearchTerm.toLowerCase()))
+                                                            .sort((a, b) => {
+                                                                return colabSortOrder === 'asc'
+                                                                    ? a.nome.localeCompare(b.nome)
+                                                                    : b.nome.localeCompare(a.nome);
+                                                            })
+                                                            .map(colab => (
+                                                                <div
+                                                                    key={colab.id}
+                                                                    onClick={() => setSelectedColaborador(colab)}
+                                                                    className="bg-white/60 p-3 rounded-2xl border border-white/60 flex items-center gap-3 shadow-sm hover:shadow-md hover:bg-white hover:border-blue-200 cursor-pointer transition-all group"
+                                                                >
+                                                                    <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-500 shrink-0 group-hover:bg-blue-500 group-hover:text-white transition-colors">
+                                                                        <User size={16} />
                                                                     </div>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <p className="text-sm font-bold text-slate-800 truncate">{colab.nome}</p>
+                                                                        <div className="flex items-center gap-2 text-xs text-slate-500">
+                                                                            <span className="flex items-center gap-1 truncate">
+                                                                                <Briefcase size={10} />
+                                                                                {colab.cargos?.nome || 'Cargo n/a'}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <ChevronRight size={16} className="text-slate-300 group-hover:text-blue-500" />
                                                                 </div>
-                                                                <ChevronRight size={16} className="text-slate-300 group-hover:text-blue-500" />
-                                                            </div>
-                                                        ))}
+                                                            ))}
                                                     </div>
                                                 )}
                                             </div>
