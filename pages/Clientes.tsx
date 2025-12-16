@@ -229,7 +229,24 @@ export const Clientes: React.FC = () => {
 
     const fetchClientes = async () => {
         setLoading(true);
+
+        // Cache Strategy: Stale-While-Revalidate (sort of) or Cache-First with TTL
+        const CACHE_KEY = 'clientes_cache';
+        const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
         try {
+            const cached = localStorage.getItem(CACHE_KEY);
+            if (cached) {
+                const { data, timestamp } = JSON.parse(cached);
+                if (Date.now() - timestamp < CACHE_TTL) {
+                    setClientes(data);
+                    setLoading(false);
+                    // Optional: Fetch in background to update cache (Stale-While-Revalidate)
+                    // For now, return early to save resources as requested
+                    return;
+                }
+            }
+
             const { data, error } = await supabase
                 .from('clientes')
                 .select(`
@@ -247,7 +264,13 @@ export const Clientes: React.FC = () => {
                 .order('nome_fantasia', { ascending: true });
 
             if (error) throw error;
+
             setClientes(data || []);
+            localStorage.setItem(CACHE_KEY, JSON.stringify({
+                data: data || [],
+                timestamp: Date.now()
+            }));
+
         } catch (error) {
             console.error('Erro ao buscar clientes:', error);
         } finally {
@@ -352,9 +375,12 @@ export const Clientes: React.FC = () => {
                 // UPDATE Logic
                 if (!selectedClient) return;
 
+                // Remove relational properties that are not columns in 'clientes' table
+                const { unidades, ...payload } = editForm;
+
                 const { error } = await supabase
                     .from('clientes')
-                    .update(editForm)
+                    .update(payload)
                     .eq('id', selectedClient.id);
 
                 if (error) throw error;
@@ -364,6 +390,7 @@ export const Clientes: React.FC = () => {
                 setSelectedClient(updatedClient);
                 setClientes(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
                 setIsEditing(false);
+                handleClosePanel(); // Close modal after save
             }
         } catch (error) {
             console.error('Erro ao salvar cliente:', error);
@@ -415,44 +442,47 @@ export const Clientes: React.FC = () => {
         }
     };
 
-    const filteredClientes = clientes.filter(cliente => {
-        const matchesSearch =
-            (cliente.nome_fantasia?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-            (cliente.razao_social?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-            (cliente.cnpj || '').includes(searchTerm);
+    // Use useMemo to prevent re-filtering on every render unless deps change
+    const filteredClientes = React.useMemo(() => {
+        return clientes.filter(cliente => {
+            const matchesSearch =
+                (cliente.nome_fantasia?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+                (cliente.razao_social?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+                (cliente.cnpj || '').includes(searchTerm);
 
-        const matchesType = typeFilter === 'Todos' ||
-            (typeFilter === 'Frequente' && cliente.clientefrequente) ||
-            (typeFilter === 'Esporádico' && !cliente.clientefrequente);
+            const matchesType = typeFilter === 'Todos' ||
+                (typeFilter === 'Frequente' && cliente.clientefrequente) ||
+                (typeFilter === 'Esporádico' && !cliente.clientefrequente);
 
-        // Document Filter Logic
-        let matchesDoc = true;
-        if (docFilter !== 'Todos') {
-            const today = new Date();
-            const thirtyDaysFromNow = new Date();
-            thirtyDaysFromNow.setDate(today.getDate() + 30);
+            // Document Filter Logic
+            let matchesDoc = true;
+            if (docFilter !== 'Todos') {
+                const today = new Date();
+                const thirtyDaysFromNow = new Date();
+                thirtyDaysFromNow.setDate(today.getDate() + 30);
 
-            let hasExpiringDoc = false;
+                let hasExpiringDoc = false;
 
-            cliente.unidades?.forEach(unidade => {
-                unidade.clientes_documentacoes?.forEach(doc => {
-                    const check = (dateStr?: string) => {
-                        if (!dateStr) return false;
-                        const d = new Date(dateStr);
-                        return d >= today && d <= thirtyDaysFromNow;
-                    };
+                cliente.unidades?.forEach(unidade => {
+                    unidade.clientes_documentacoes?.forEach(doc => {
+                        const check = (dateStr?: string) => {
+                            if (!dateStr) return false;
+                            const d = new Date(dateStr);
+                            return d >= today && d <= thirtyDaysFromNow;
+                        };
 
-                    if (docFilter === 'PGR' && check(doc.vencimento_pgr)) hasExpiringDoc = true;
-                    if (docFilter === 'PCMSO' && check(doc.vencimento_pcmso)) hasExpiringDoc = true;
-                    if (docFilter === 'DIR/AEP' && check(doc.vigencia_dir_aep)) hasExpiringDoc = true;
-                    if (docFilter === 'Procuracao' && check(doc.esocial_procuracao)) hasExpiringDoc = true;
+                        if (docFilter === 'PGR' && check(doc.vencimento_pgr)) hasExpiringDoc = true;
+                        if (docFilter === 'PCMSO' && check(doc.vencimento_pcmso)) hasExpiringDoc = true;
+                        if (docFilter === 'DIR/AEP' && check(doc.vigencia_dir_aep)) hasExpiringDoc = true;
+                        if (docFilter === 'Procuracao' && check(doc.esocial_procuracao)) hasExpiringDoc = true;
+                    });
                 });
-            });
-            matchesDoc = hasExpiringDoc;
-        }
+                matchesDoc = hasExpiringDoc;
+            }
 
-        return matchesSearch && matchesType && matchesDoc;
-    });
+            return matchesSearch && matchesType && matchesDoc;
+        });
+    }, [clientes, searchTerm, typeFilter, docFilter]);
     return (
         <div className="relative h-full flex flex-col">
             {/* Header & Filters */}
