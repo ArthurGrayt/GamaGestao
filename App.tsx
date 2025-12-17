@@ -10,7 +10,7 @@ const Saude = React.lazy(() => import('./pages/Saude').then(module => ({ default
 const Operacional = React.lazy(() => import('./pages/Operacional').then(module => ({ default: module.Operacional })));
 const Comercial = React.lazy(() => import('./pages/Comercial').then(module => ({ default: module.Comercial })));
 const Clientes = React.lazy(() => import('./pages/Clientes').then(module => ({ default: module.Clientes })));
-const GamaTalk = React.lazy(() => import('./pages/GamaTalk').then(module => ({ default: module.GamaTalk })));
+const Usuarios = React.lazy(() => import('./pages/Usuarios').then(module => ({ default: module.Usuarios })));
 
 // Loading Component
 const PageLoader = () => (
@@ -36,7 +36,7 @@ function App() {
             <Route path="saude" element={<Saude />} />
             <Route path="operacional" element={<Operacional />} />
             <Route path="comercial" element={<Comercial />} />
-            <Route path="gama-talk" element={<GamaTalk />} />
+            <Route path="usuarios" element={<Usuarios />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

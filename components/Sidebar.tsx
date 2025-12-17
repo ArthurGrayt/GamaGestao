@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Wallet, Stethoscope, Briefcase, ClipboardList, LogOut, Building2, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Wallet, Stethoscope, Briefcase, ClipboardList, LogOut, Building2, MessageSquare, Users } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { useNotifications } from '../contexts/NotificationContext';
 
@@ -26,7 +26,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isExpanded, onMouseEnter, onMo
     { name: 'Saúde', path: '/saude', icon: <Stethoscope size={20} /> },
     { name: 'Comercial', path: '/comercial', icon: <Briefcase size={20} /> },
     { name: 'Operacional', path: '/operacional', icon: <ClipboardList size={20} /> },
-    { name: 'Gama Talk', path: '/gama-talk', icon: <MessageSquare size={20} /> },
+    { name: 'Usuários', path: '/usuarios', icon: <Users size={20} /> },
   ];
 
   return (
