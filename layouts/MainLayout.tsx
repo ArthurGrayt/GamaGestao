@@ -49,12 +49,14 @@ export const MainLayout: React.FC = () => {
   return (
     <NotificationProvider>
       <div className="flex min-h-screen">
-        <Sidebar
-          isExpanded={isSidebarExpanded}
-          onMouseEnter={() => setIsSidebarExpanded(true)}
-          onMouseLeave={() => setIsSidebarExpanded(false)}
-        />
-        <div className={`flex-1 flex flex-col relative transition-all duration-300 ${isSidebarExpanded ? 'ml-64' : 'ml-20'}`}>
+        <div className="print:hidden">
+          <Sidebar
+            isExpanded={isSidebarExpanded}
+            onMouseEnter={() => setIsSidebarExpanded(true)}
+            onMouseLeave={() => setIsSidebarExpanded(false)}
+          />
+        </div>
+        <div className={`flex-1 flex flex-col relative transition-all duration-300 ${isSidebarExpanded ? 'ml-64' : 'ml-20'} print:ml-0 print:w-auto print:h-auto print:static`}>
           {location.pathname !== '/clientes' && location.pathname !== '/usuarios' && (
             <header className="bg-white/60 backdrop-blur-xl h-24 px-8 flex items-center justify-between sticky top-0 z-10 shadow-sm border-b border-white/40">
               <div>
@@ -71,7 +73,7 @@ export const MainLayout: React.FC = () => {
               />
             </header>
           )}
-          <main className="p-8 overflow-y-auto flex-1">
+          <main className="p-8 overflow-y-auto flex-1 print:overflow-visible print:h-auto print:block">
             <FilterContext.Provider value={filterState}>
               <Outlet />
             </FilterContext.Provider>
