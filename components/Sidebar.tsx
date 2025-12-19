@@ -4,6 +4,7 @@ import { LayoutDashboard, Wallet, Stethoscope, Briefcase, ClipboardList, LogOut,
 import { supabase } from '../services/supabase';
 import { useNotifications } from '../contexts/NotificationContext';
 
+
 interface SidebarProps {
   isExpanded: boolean;
   onMouseEnter: () => void;
@@ -13,6 +14,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ isExpanded, onMouseEnter, onMouseLeave }) => {
   const navigate = useNavigate();
   const { unreadCount } = useNotifications();
+
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -67,6 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isExpanded, onMouseEnter, onMo
                       {unreadCount}
                     </span>
                   )}
+
                 </div>
                 <span className={`tracking-wide text-sm whitespace-nowrap transition-all duration-300 ml-3 ${isExpanded ? 'opacity-100' : 'opacity-0'}`}>{item.name}</span>
               </>

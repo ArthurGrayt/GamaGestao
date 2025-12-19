@@ -101,6 +101,8 @@ export const Clientes: React.FC = () => {
 
     const { notifications, markAsRead } = useNotifications();
 
+
+
     useEffect(() => {
         fetchClientes();
     }, []);
@@ -118,6 +120,8 @@ export const Clientes: React.FC = () => {
             });
         }
     }, [selectedClient, activeTab, selectedUnidadeId, notifications, markAsRead]);
+
+
 
     useEffect(() => {
         if (selectedClient) {
@@ -370,7 +374,7 @@ export const Clientes: React.FC = () => {
 
                 setClientes([...clientes, data]);
                 handleClosePanel(); // Close after create
-                // Optional: success toast
+
             } else {
                 // UPDATE Logic
                 if (!selectedClient) return;
@@ -649,7 +653,7 @@ export const Clientes: React.FC = () => {
                                             {/* Expiration Warning Icon (Moved) */}
                                             {expiringDocs.length > 0 && (
                                                 <div className="relative group/warning z-30">
-                                                    <div className="bg-amber-100 text-amber-600 p-1.5 rounded-full shadow-sm cursor-help">
+                                                    <div className={`${notifications.some(n => n.clientId === cliente.id) ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'} p-1.5 rounded-full shadow-sm cursor-help`}>
                                                         <AlertTriangle size={16} />
                                                     </div>
 

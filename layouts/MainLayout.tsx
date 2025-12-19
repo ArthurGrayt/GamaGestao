@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+
 import { Sidebar } from '../components/Sidebar';
 import { DateFilter } from '../components/DateFilter';
-import { ToastSystem } from '../components/ToastSystem';
+
 import { supabase } from '../services/supabase';
 import { NotificationProvider } from '../contexts/NotificationContext';
+
 import { DateRangeType, DateFilterState } from '../types';
 import { calculateDateRange, formatDateDisplay } from '../utils/dateUtils';
+import { ShieldAlert, LogOut } from 'lucide-react';
 
 // Context to pass date filters to pages
 export const FilterContext = React.createContext<DateFilterState>(calculateDateRange('mes', new Date()));
@@ -20,15 +23,49 @@ export const MainLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(true);
+  const [authorized, setAuthorized] = useState(false);
 
   useEffect(() => {
-    // Check auth
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        navigate('/login');
+    const checkAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (!session) {
+          navigate('/login');
+          return;
+        }
+
+        // Check user role
+        const { data: userProfile, error } = await supabase
+          .from('users')
+          .select('role')
+          .eq('user_id', session.user.id)
+          .single();
+
+        if (error) {
+          console.error('Error fetching user role:', error);
+          // If error fetching role, we might want to deny access or handle gracefully
+          // For security, default to deny if we can't verify
+          setAuthorized(false);
+        } else {
+          // Check if role is >= 5
+          // Ensure role is treated as number
+          const roleValue = Number(userProfile?.role);
+          if (!isNaN(roleValue) && roleValue >= 5) {
+            setAuthorized(true);
+          } else {
+            setAuthorized(false);
+          }
+        }
+      } catch (err) {
+        console.error('Auth check error:', err);
+        setAuthorized(false);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    };
+
+    checkAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) {
@@ -45,6 +82,33 @@ export const MainLayout: React.FC = () => {
   }, [dateRangeType, selectedDate]);
 
   if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-gray-50/50 backdrop-blur-sm">Carregando...</div>;
+
+  if (!authorized) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center border border-gray-100">
+          <div className="bg-red-50 text-red-500 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
+            <ShieldAlert size={32} />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Acesso Restrito</h2>
+          <p className="text-gray-500 mb-8">
+            Seu usuário não possui permissão suficiente para acessar o sistema.
+            <br />
+            <span className="text-sm text-gray-400 mt-2 block">(Nível de acesso inferior a 5)</span>
+          </p>
+          <button
+            onClick={() => {
+              supabase.auth.signOut().then(() => navigate('/login'));
+            }}
+            className="w-full bg-slate-900 text-white py-3 rounded-xl font-medium hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
+          >
+            <LogOut size={18} />
+            Sair da Conta
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <NotificationProvider>
@@ -79,7 +143,6 @@ export const MainLayout: React.FC = () => {
             </FilterContext.Provider>
           </main>
         </div>
-        <ToastSystem />
       </div>
     </NotificationProvider>
   );
