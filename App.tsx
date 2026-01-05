@@ -11,6 +11,7 @@ const Operacional = React.lazy(() => import('./pages/Operacional').then(module =
 const Comercial = React.lazy(() => import('./pages/Comercial').then(module => ({ default: module.Comercial })));
 const Clientes = React.lazy(() => import('./pages/Clientes').then(module => ({ default: module.Clientes })));
 const Usuarios = React.lazy(() => import('./pages/Usuarios').then(module => ({ default: module.Usuarios })));
+const Auditoria = React.lazy(() => import('./pages/Auditoria').then(module => ({ default: module.Auditoria })));
 
 // Loading Component
 const PageLoader = () => (
@@ -37,6 +38,9 @@ function App() {
             <Route path="operacional" element={<Operacional />} />
             <Route path="comercial" element={<Comercial />} />
             <Route path="usuarios" element={<Usuarios />} />
+            <Route path="comercial" element={<Comercial />} />
+            <Route path="usuarios" element={<Usuarios />} />
+            <Route path="auditoria" element={<Auditoria />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />
