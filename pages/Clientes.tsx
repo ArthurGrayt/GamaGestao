@@ -5,7 +5,7 @@ import { Search, MapPin, Mail, Phone, Building, User, X, Briefcase, ChevronRight
 import { format } from 'date-fns';
 import { useNotifications } from '../contexts/NotificationContext';
 
-interface Cliente {
+interface ClientInfo {
     id: string;
     razao_social: string;
     nome_fantasia: string;
@@ -16,14 +16,19 @@ interface Cliente {
     status: string;
     img_url?: string;
     clientefrequente?: boolean;
-    unidades?: {
+}
+
+interface UnidadeData {
+    id: number;
+    nome_unidade: string;
+    empresaid: string;
+    clientes: ClientInfo;
+    clientes_documentacoes: {
         id: number;
-        clientes_documentacoes?: {
-            vencimento_pgr?: string;
-            vencimento_pcmso?: string;
-            vigencia_dir_aep?: string;
-            esocial_procuracao?: string;
-        }[];
+        vencimento_pgr?: string;
+        vencimento_pcmso?: string;
+        vigencia_dir_aep?: string;
+        esocial_procuracao?: string;
     }[];
 }
 
@@ -63,14 +68,15 @@ interface Colaborador {
 }
 
 export const Clientes: React.FC = () => {
-    const [clientes, setClientes] = useState<Cliente[]>([]);
+    const [clientes, setClientes] = useState<UnidadeData[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [typeFilter, setTypeFilter] = useState('Todos'); // 'Todos', 'Frequente', 'Esporádico'
     const [docFilter, setDocFilter] = useState('Todos'); // 'Todos', 'PGR', 'PCMSO', 'DIR/AEP', 'Procuracao'
 
-    // Selected Client for Details View
-    const [selectedClient, setSelectedClient] = useState<Cliente | null>(null);
+    // Selected Client for Details View (Now maps to Unit Data for context, or actual client)
+    // We will store the selected UnitData here to maintain context
+    const [selectedClient, setSelectedClient] = useState<UnidadeData | null>(null);
     const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
     const [loadingColab, setLoadingColab] = useState(false);
     const [colabSearchTerm, setColabSearchTerm] = useState('');
@@ -83,11 +89,11 @@ export const Clientes: React.FC = () => {
     // Edit Mode State
     const [isEditing, setIsEditing] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
-    const [editForm, setEditForm] = useState<Partial<Cliente>>({});
+    const [editForm, setEditForm] = useState<Partial<ClientInfo>>({});
     const [saving, setSaving] = useState(false);
 
     // Bulk Delete State
-    const [selectedClients, setSelectedClients] = useState<string[]>([]);
+    const [selectedClients, setSelectedClients] = useState<number[]>([]);
     const [deleting, setDeleting] = useState(false);
     const [isSelectionMode, setIsSelectionMode] = useState(false);
 
@@ -111,7 +117,7 @@ export const Clientes: React.FC = () => {
     useEffect(() => {
         if (selectedClient && activeTab === 'docs' && selectedUnidadeId) {
             const unitNotifications = notifications.filter(n =>
-                n.clientId === selectedClient.id &&
+                n.clientId === selectedClient.clientes.id &&
                 n.unityId === selectedUnidadeId
             );
 
@@ -125,9 +131,9 @@ export const Clientes: React.FC = () => {
 
     useEffect(() => {
         if (selectedClient) {
-            fetchColaboradores(selectedClient.id);
+            fetchColaboradores(selectedClient.clientes?.id || selectedClient.empresaid); // Use client ID
             if (activeTab === 'docs') {
-                fetchUnidades(selectedClient.id);
+                fetchUnidades(selectedClient.clientes?.id || selectedClient.empresaid);
             }
             setSelectedColaborador(null); // Reset drill-down when opening a new client
             setIsEditing(false); // Reset edit mode
@@ -141,7 +147,7 @@ export const Clientes: React.FC = () => {
     // Fetch units when tab changes to docs or client changes
     useEffect(() => {
         if (selectedClient && activeTab === 'docs') {
-            fetchUnidades(selectedClient.id);
+            fetchUnidades(selectedClient.clientes.id);
         }
     }, [activeTab, selectedClient]);
 
@@ -189,8 +195,8 @@ export const Clientes: React.FC = () => {
             } else {
                 setDocForm({
                     unidade_id: unidadeId,
-                    razao_social: selectedClient?.razao_social || '',
-                    cpf_cnpj: selectedClient?.cnpj || '',
+                    razao_social: selectedClient?.clientes.razao_social || '',
+                    cpf_cnpj: selectedClient?.clientes.cnpj || '',
                     esocial: false
                 });
             }
@@ -252,20 +258,30 @@ export const Clientes: React.FC = () => {
             }
 
             const { data, error } = await supabase
-                .from('clientes')
+                .from('unidades')
                 .select(`
-                    *,
-                    unidades (
-                        id,
-                        clientes_documentacoes (
-                            vencimento_pgr,
-                            vencimento_pcmso,
-                            vigencia_dir_aep,
-                            esocial_procuracao
-                        )
+                    id,
+                    nome_unidade,
+                    empresaid,
+                    clientes:empresaid (
+                         id,
+                         razao_social,
+                         nome_fantasia,
+                         cnpj,
+                         email,
+                         telefone,
+                         endereco,
+                         status,
+                         clientefrequente
+                    ),
+                    clientes_documentacoes (
+                        vencimento_pgr,
+                        vencimento_pcmso,
+                        vigencia_dir_aep,
+                        esocial_procuracao
                     )
                 `)
-                .order('nome_fantasia', { ascending: true });
+                .order('nome_unidade', { ascending: true });
 
             if (error) throw error;
 
@@ -286,9 +302,10 @@ export const Clientes: React.FC = () => {
     useEffect(() => {
         const state = (location as any).state;
         if (state?.openClientId && clientes.length > 0) {
-            const targetClient = clientes.find(c => c.id === state.openClientId);
-            if (targetClient) {
-                setSelectedClient(targetClient);
+            // Adapted logic: find the first unit belonging to this client or similar
+            const targetUnit = clientes.find(c => c.empresaid === state.openClientId);
+            if (targetUnit) {
+                setSelectedClient(targetUnit);
                 if (state.openTab === 'docs') {
                     setActiveTab('docs');
                 }
@@ -348,7 +365,7 @@ export const Clientes: React.FC = () => {
 
     const handleEditClick = () => {
         if (selectedClient) {
-            setEditForm(selectedClient);
+            setEditForm(selectedClient.clientes);
             setIsEditing(true);
         }
     };
@@ -380,19 +397,22 @@ export const Clientes: React.FC = () => {
                 if (!selectedClient) return;
 
                 // Remove relational properties that are not columns in 'clientes' table
-                const { unidades, ...payload } = editForm;
+                const { ...payload } = editForm;
 
                 const { error } = await supabase
                     .from('clientes')
                     .update(payload)
-                    .eq('id', selectedClient.id);
+                    .eq('id', selectedClient.empresaid);
 
                 if (error) throw error;
 
-                // Update local state
-                const updatedClient = { ...selectedClient, ...editForm } as Cliente;
-                setSelectedClient(updatedClient);
-                setClientes(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
+                // Update local state - this is tricky with the new structure.
+                // We update the client info inside the unit object
+                const updatedClientInfo = { ...selectedClient.clientes, ...editForm } as ClientInfo;
+                const updatedUnit = { ...selectedClient, clientes: updatedClientInfo };
+
+                setSelectedClient(updatedUnit);
+                setClientes(prev => prev.map(c => c.id === updatedUnit.id ? updatedUnit : c));
                 setIsEditing(false);
                 handleClosePanel(); // Close modal after save
             }
@@ -404,7 +424,7 @@ export const Clientes: React.FC = () => {
         }
     };
 
-    const toggleClientSelection = (id: string, e: React.MouseEvent) => {
+    const toggleClientSelection = (id: number, e: React.MouseEvent) => {
         e.stopPropagation(); // Prevent opening details
         setSelectedClients(prev =>
             prev.includes(id)
@@ -422,8 +442,16 @@ export const Clientes: React.FC = () => {
 
         setDeleting(true);
         try {
+            // This bulk delete logic is now risky because we are listing UNITS but deleting CLIENTS?
+            // User asked to "fetch from units". It's ambiguous if they want to delete units or clients.
+            // For safety, I will disable bulk delete for now or adapt it to delete UNITS if that's what we are selecting.
+            // Since the ID is now Unit ID, we should delete from 'unidades'.
+
+            // const { error } = await supabase.from('unidades').delete().in('id', selectedClients);
+
+            // NOTE: Implementing deletion of UNIDADES for now as the selection is on items (Units).
             const { error } = await supabase
-                .from('clientes')
+                .from('unidades')
                 .delete()
                 .in('id', selectedClients);
 
@@ -450,13 +478,13 @@ export const Clientes: React.FC = () => {
     const filteredClientes = React.useMemo(() => {
         return clientes.filter(cliente => {
             const matchesSearch =
-                (cliente.nome_fantasia?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-                (cliente.razao_social?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-                (cliente.cnpj || '').includes(searchTerm);
+                (cliente.clientes?.nome_fantasia?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+                (cliente.clientes?.razao_social?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+                (cliente.clientes?.cnpj || '').includes(searchTerm);
 
             const matchesType = typeFilter === 'Todos' ||
-                (typeFilter === 'Frequente' && cliente.clientefrequente) ||
-                (typeFilter === 'Esporádico' && !cliente.clientefrequente);
+                (typeFilter === 'Frequente' && cliente.clientes?.clientefrequente) ||
+                (typeFilter === 'Esporádico' && !cliente.clientes?.clientefrequente);
 
             // Document Filter Logic
             let matchesDoc = true;
@@ -467,19 +495,20 @@ export const Clientes: React.FC = () => {
 
                 let hasExpiringDoc = false;
 
-                cliente.unidades?.forEach(unidade => {
-                    unidade.clientes_documentacoes?.forEach(doc => {
-                        const check = (dateStr?: string) => {
-                            if (!dateStr) return false;
-                            const d = new Date(dateStr);
-                            return d >= today && d <= thirtyDaysFromNow;
-                        };
+                // cliente here is UnidadeData
+                // "cliente.unidades" doesn't exist anymore, we are AT the unit level
+                // We check the docs of THIS unit
+                cliente.clientes_documentacoes?.forEach(doc => {
+                    const check = (dateStr?: string) => {
+                        if (!dateStr) return false;
+                        const d = new Date(dateStr);
+                        return d >= today && d <= thirtyDaysFromNow;
+                    };
 
-                        if (docFilter === 'PGR' && check(doc.vencimento_pgr)) hasExpiringDoc = true;
-                        if (docFilter === 'PCMSO' && check(doc.vencimento_pcmso)) hasExpiringDoc = true;
-                        if (docFilter === 'DIR/AEP' && check(doc.vigencia_dir_aep)) hasExpiringDoc = true;
-                        if (docFilter === 'Procuracao' && check(doc.esocial_procuracao)) hasExpiringDoc = true;
-                    });
+                    if (docFilter === 'PGR' && check(doc.vencimento_pgr)) hasExpiringDoc = true;
+                    if (docFilter === 'PCMSO' && check(doc.vencimento_pcmso)) hasExpiringDoc = true;
+                    if (docFilter === 'DIR/AEP' && check(doc.vigencia_dir_aep)) hasExpiringDoc = true;
+                    if (docFilter === 'Procuracao' && check(doc.esocial_procuracao)) hasExpiringDoc = true;
                 });
                 matchesDoc = hasExpiringDoc;
             }
@@ -591,21 +620,22 @@ export const Clientes: React.FC = () => {
 
                         const expiringDocs: { label: string; date: string }[] = [];
 
-                        cliente.unidades?.forEach(unidade => {
-                            unidade.clientes_documentacoes?.forEach(doc => {
-                                const checkDate = (dateStr: string | undefined, label: string) => {
-                                    if (!dateStr) return;
-                                    const date = new Date(dateStr);
-                                    if (date >= today && date <= thirtyDaysFromNow) {
-                                        expiringDocs.push({ label, date: format(date, 'dd/MM/yyyy') });
-                                    }
-                                };
 
-                                checkDate(doc.vencimento_pgr, 'PGR');
-                                checkDate(doc.vencimento_pcmso, 'PCMSO');
-                                checkDate(doc.vigencia_dir_aep, 'DIR/AEP');
-                                checkDate(doc.esocial_procuracao, 'Procuração eSocial');
-                            });
+
+                        // Flattened logic
+                        cliente.clientes_documentacoes?.forEach(doc => {
+                            const checkDate = (dateStr: string | undefined, label: string) => {
+                                if (!dateStr) return;
+                                const date = new Date(dateStr);
+                                if (date >= today && date <= thirtyDaysFromNow) {
+                                    expiringDocs.push({ label, date: format(date, 'dd/MM/yyyy') });
+                                }
+                            };
+
+                            checkDate(doc.vencimento_pgr, 'PGR');
+                            checkDate(doc.vencimento_pcmso, 'PCMSO');
+                            checkDate(doc.vigencia_dir_aep, 'DIR/AEP');
+                            checkDate(doc.esocial_procuracao, 'Procuração eSocial');
                         });
 
                         return (
@@ -641,13 +671,13 @@ export const Clientes: React.FC = () => {
                                                 <Building size={20} />
                                             </div>
                                             <div>
-                                                <h3 className="font-bold text-slate-800 line-clamp-1">{cliente.nome_fantasia || 'Sem Nome'}</h3>
-                                                <p className="text-xs text-slate-500">{cliente.cnpj || 'CNPJ não informado'}</p>
+                                                <h3 className="font-bold text-slate-800 line-clamp-1">{cliente.clientes?.nome_fantasia || cliente.nome_unidade || 'Sem Nome'}</h3>
+                                                <p className="text-xs text-slate-500">{cliente.clientes?.cnpj || 'CNPJ não informado'}</p>
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${cliente.clientefrequente ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
-                                                {cliente.clientefrequente ? 'Frequente' : 'Esporádico'}
+                                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${cliente.clientes?.clientefrequente ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
+                                                {cliente.clientes?.clientefrequente ? 'Frequente' : 'Esporádico'}
                                             </span>
 
                                             {/* Expiration Warning Icon (Moved) */}
@@ -675,22 +705,22 @@ export const Clientes: React.FC = () => {
                                     </div>
 
                                     <div className="mt-6 space-y-2 relative z-10">
-                                        {cliente.email && (
+                                        {cliente.clientes?.email && (
                                             <div className="flex items-center gap-2 text-xs text-slate-500">
                                                 <Mail size={14} className="text-slate-400" />
-                                                <span className="truncate">{cliente.email}</span>
+                                                <span className="truncate">{cliente.clientes.email}</span>
                                             </div>
                                         )}
-                                        {cliente.telefone && (
+                                        {cliente.clientes?.telefone && (
                                             <div className="flex items-center gap-2 text-xs text-slate-500">
                                                 <Phone size={14} className="text-slate-400" />
-                                                <span>{cliente.telefone}</span>
+                                                <span>{cliente.clientes.telefone}</span>
                                             </div>
                                         )}
-                                        {cliente.endereco && (
+                                        {cliente.clientes?.endereco && (
                                             <div className="flex items-center gap-2 text-xs text-slate-500">
                                                 <MapPin size={14} className="text-slate-400" />
-                                                <span className="truncate">{cliente.endereco}</span>
+                                                <span className="truncate">{cliente.clientes.endereco}</span>
                                             </div>
                                         )}
                                     </div>

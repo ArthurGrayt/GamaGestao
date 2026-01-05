@@ -1,5 +1,5 @@
-import { 
-  startOfDay, endOfDay, subDays, 
+import {
+  startOfDay, endOfDay, subDays,
   startOfWeek, endOfWeek, subWeeks,
   startOfMonth, endOfMonth, subMonths,
   startOfQuarter, endOfQuarter, subQuarters,
@@ -22,7 +22,7 @@ export const calculateDateRange = (range: DateRangeType, referenceDate: Date = n
       prevStartDate = startOfDay(subDays(ref, 1));
       prevEndDate = endOfDay(subDays(ref, 1));
       break;
-      
+
     case 'ontem': // Kept for legacy compatibility, maps to specific day logic usually
       const yesterday = subDays(new Date(), 1);
       startDate = startOfDay(yesterday);
@@ -32,12 +32,13 @@ export const calculateDateRange = (range: DateRangeType, referenceDate: Date = n
       break;
 
     case 'semana':
-      // User selects a day, we get that week (Sunday to Saturday)
-      startDate = startOfWeek(ref, { weekStartsOn: 0 }); // 0 = Sunday
-      endDate = endOfWeek(ref, { weekStartsOn: 0 });
-      // Compare with previous week
-      prevStartDate = startOfWeek(subWeeks(ref, 1), { weekStartsOn: 0 });
-      prevEndDate = endOfWeek(subWeeks(ref, 1), { weekStartsOn: 0 });
+      // User Request: "dia atual e mais 6 dias frente" (Current Day + 6 days ahead)
+      startDate = startOfDay(ref);
+      endDate = endOfDay(addDays(ref, 6));
+
+      // Previous: The 7 days before the start date
+      prevStartDate = startOfDay(subDays(ref, 7));
+      prevEndDate = endOfDay(subDays(ref, 1));
       break;
 
     case 'mes':
