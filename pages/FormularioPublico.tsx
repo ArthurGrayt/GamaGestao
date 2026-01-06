@@ -5,6 +5,61 @@ import { supabase } from '../services/supabase';
 import { Form, FormQuestion } from '../types';
 import { CheckCircle, AlertCircle, ChevronRight, Send, Star, User, Hash, ChevronDown } from 'lucide-react';
 
+const LoadingScreen = () => (
+    <div className="fixed inset-0 bg-gray-50 z-50 flex items-center justify-center font-sans antialiased">
+        <style>{`
+            @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;700&display=swap');
+            
+            @keyframes text-slide {
+                0%, 27.777% { transform: translateY(0%); }
+                33.333%, 61.111% { transform: translateY(-25%); }
+                66.666%, 94.444% { transform: translateY(-50%); }
+                100% { transform: translateY(-75%); }
+            }
+
+            .slider {
+                animation: text-slide 6.5s cubic-bezier(0.83, 0, 0.17, 1) infinite;
+            }
+
+            .gpu-text {
+                transform: translateZ(0);
+                backface-visibility: hidden;
+                -webkit-font-smoothing: antialiased;
+            }
+        `}</style>
+
+        <div className="flex flex-col items-center justify-center text-[#35b6cf] font-bold text-5xl gap-1" style={{ fontFamily: "'Outfit', sans-serif" }}>
+
+            {/* LINE 1: Uma Gama */}
+            <div className="flex items-baseline gap-2">
+                <span className="gpu-text">Uma</span>
+
+                <span className="flex items-baseline gpu-text">
+                    <img src="/corped.png" alt="" className="h-[1.25em] w-auto relative top-[0.25em] -mr-1" />
+                    <span>ama</span>
+                </span>
+            </div>
+
+            {/* LINE 2: de [Animation] */}
+            <div className="flex items-baseline gap-2">
+                <span className="gpu-text">de</span>
+
+                {/* TEXTO ANIMADO */}
+                <div className="overflow-hidden h-[1.3em] -mt-2">
+                    <div className="slider gpu-text">
+                        <span className="block h-[1.3em] leading-[1.3em]">ideias</span>
+                        <span className="block h-[1.3em] leading-[1.3em]">soluções</span>
+                        <span className="block h-[1.3em] leading-[1.3em]">inovações</span>
+                        {/* Clone of first item for infinite loop illusion */}
+                        <span className="block h-[1.3em] leading-[1.3em]">ideias</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+);
+
 export const FormularioPublico: React.FC = () => {
     const { slug } = useParams<{ slug: string }>();
     const [form, setForm] = useState<Form | null>(null);
@@ -26,6 +81,12 @@ export const FormularioPublico: React.FC = () => {
     useEffect(() => {
         if (slug) fetchForm();
     }, [slug]);
+
+    useEffect(() => {
+        if (form?.title) {
+            document.title = form.title;
+        }
+    }, [form]);
 
     useEffect(() => {
         const isValidName = respondentName.trim().split(' ').length >= 2; // At least 2 names
@@ -72,6 +133,8 @@ export const FormularioPublico: React.FC = () => {
 
     const fetchForm = async () => {
         setLoading(true);
+        const minWaitPromise = new Promise(resolve => setTimeout(resolve, 3000));
+
         // 1. Get Form
         const { data: formData, error: formError } = await supabase
             .from('forms')
@@ -98,6 +161,7 @@ export const FormularioPublico: React.FC = () => {
         if (questionData) {
             setQuestions(questionData);
         }
+        await minWaitPromise;
         setLoading(false);
     };
 
@@ -160,11 +224,7 @@ export const FormularioPublico: React.FC = () => {
 
 
     if (loading && !submitted) {
-        return (
-            <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            </div>
-        );
+        return <LoadingScreen />;
     }
 
     if (error) {
@@ -184,61 +244,60 @@ export const FormularioPublico: React.FC = () => {
     if (submitted) {
         return (
             <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-                <div className="bg-white p-8 rounded-xl shadow-lg border-t-[10px] border-t-blue-600 max-w-[770px] w-full text-center animate-in zoom-in-95 duration-500">
-                    <div className="mx-auto w-20 h-20 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-6">
+                <div className="bg-white p-8 rounded-xl shadow-lg border-t-[10px] border-t-[#35b6cf] max-w-[770px] w-full text-center animate-in zoom-in-95 duration-500">
+                    <div className="mx-auto w-20 h-20 bg-[#35b6cf]/10 text-[#35b6cf] rounded-full flex items-center justify-center mb-6">
                         <CheckCircle size={40} />
                     </div>
                     <h1 className="text-2xl font-bold text-slate-800 mb-2">Resposta Registrada</h1>
                     <p className="text-slate-500 mb-8">Sua resposta foi enviada com sucesso. Obrigado!</p>
-                    <button onClick={() => window.close()} className="text-blue-600 hover:text-blue-700 font-medium hover:underline">Fechar página</button>
+                    <button onClick={() => window.close()} className="text-[#35b6cf] hover:text-[#2ca1b7] font-medium hover:underline">Fechar página</button>
                 </div>
             </div>
         );
     }
 
     // Identidade Visual Gama Gestão
-    const FORM_WIDTH = "max-w-[640px]";
-    const ACCENT_BORDER = "border-t-[8px] border-t-blue-600";
+    const FORM_WIDTH = "w-full max-w-[640px]";
+    const ACCENT_BORDER = "border-t-[8px] border-t-[#35b6cf]";
 
     return (
-        <div className="h-screen overflow-hidden bg-slate-50 flex flex-col items-center justify-center font-sans">
+        <div className={`bg-slate-50 flex flex-col items-center font-sans px-3 sm:px-0 ${step === 'cover' ? 'h-screen overflow-hidden justify-center' : 'min-h-screen pt-4 sm:pt-8 pb-10 justify-start'}`}>
             {/* STEP 0: COVER PAGE */}
             {step === 'cover' && (
-                <div className={`${FORM_WIDTH} w-full h-full flex flex-col justify-center animate-in slide-in-from-bottom-4 duration-500`}>
-                    <div className="flex justify-center mb-4">
-                        <img src="/favicon.png" alt="Logo" className="h-10 w-auto drop-shadow-sm" />
-                    </div>
+                <div className={`${FORM_WIDTH} h-full flex flex-col justify-center animate-in slide-in-from-bottom-4 duration-500`}>
 
-                    <div className={`bg-white rounded-lg shadow-sm border border-slate-200 ${ACCENT_BORDER} p-6 mb-3 flex flex-col max-h-[70vh]`}>
-                        <h1 className="text-xl sm:text-2xl font-normal text-slate-900 mb-3 line-clamp-2">{form?.title}</h1>
+
+                    <div className={`bg-white rounded-lg shadow-sm border border-slate-200 ${ACCENT_BORDER} p-5 sm:p-6 mb-3 flex flex-col max-h-[75vh]`}>
+                        <h1 className="text-lg sm:text-2xl font-normal text-slate-900 mb-3 line-clamp-2">{form?.title}</h1>
                         <div className="overflow-y-auto pr-2 custom-scrollbar flex-1">
-                            <p className="text-slate-700 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap">{form?.description}</p>
+                            <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">{form?.description}</p>
                         </div>
 
                         <div className="pt-4 flex justify-between items-center border-t border-slate-100 mt-4 shrink-0">
-                            <span className="text-[10px] text-slate-400 font-medium tracking-wide">GAMA GESTÃO</span>
+
                             <div className="flex gap-3">
                                 <button className="text-slate-500 text-xs font-medium hover:bg-slate-50 hover:text-red-500 px-3 py-1.5 rounded transition-colors">Limpar</button>
                                 <button
                                     onClick={() => setStep('form')}
-                                    className="bg-blue-600 text-white px-5 py-1.5 rounded-md font-medium text-sm hover:bg-blue-700 transition-colors shadow-sm ring-offset-2 focus:ring-2 focus:ring-blue-500"
+                                    className="bg-[#35b6cf] text-white px-5 py-1.5 rounded-md font-medium text-sm hover:bg-[#2ca1b7] transition-colors shadow-sm ring-offset-2 focus:ring-2 focus:ring-[#35b6cf]"
                                 >
                                     Avançar
                                 </button>
                             </div>
                         </div>
                     </div>
-                    <div className="text-center text-xs text-slate-400 mt-4">
-                        Gama Center - 2025
+                    <div className="flex items-center justify-center gap-2 mt-4 opacity-70">
+                        <img src="/favicon.png" alt="Logo" className="h-5 w-auto" />
+                        <span className="text-xs text-slate-500 font-medium">Gama Center - 2025</span>
                     </div>
                 </div>
             )}
 
             {/* STEP 1: FORM */}
             {step === 'form' && (
-                <div className={`${FORM_WIDTH} mx-auto space-y-4 animate-in slide-in-from-right-8 duration-500`}>
+                <div className={`${FORM_WIDTH} mx-auto space-y-3 sm:space-y-4 animate-in slide-in-from-right-8 duration-500`}>
                     {/* Header Compacto */}
-                    <div className={`bg-white rounded-lg shadow-sm border border-slate-200 ${ACCENT_BORDER} p-6`}>
+                    <div className={`bg-white rounded-lg shadow-sm border border-slate-200 ${ACCENT_BORDER} p-5 sm:p-6`}>
                         <h1 className="text-2xl font-normal text-slate-900">{form?.title}</h1>
                         <div className="text-xs text-slate-500 mt-2 flex items-center gap-1">
                             <span className="text-red-500">*</span> Indica pergunta obrigatória
@@ -246,10 +305,10 @@ export const FormularioPublico: React.FC = () => {
                     </div>
 
                     {/* Identification (Mandatory) */}
-                    <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+                    <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 sm:p-6">
                         <h3 className="text-base font-normal text-slate-800 mb-6 flex items-center gap-2">
                             Identificação
-                            {isIdentityValid ? <CheckCircle size={16} className="text-emerald-500" /> : <span className="text-red-500 text-xs">* Obrigatório</span>}
+                            {isIdentityValid ? <CheckCircle size={16} className="text-[#35b6cf]" /> : <span className="text-red-500 text-xs">* Obrigatório</span>}
                         </h3>
                         <div className="space-y-6">
                             <div className="relative">
@@ -257,7 +316,7 @@ export const FormularioPublico: React.FC = () => {
                                 <input
                                     type="text"
                                     placeholder="Sua resposta"
-                                    className={`w-full px-0 py-2 border-b focus:border-b-2 bg-transparent transition-all outline-none ${respondentName && respondentName.trim().split(' ').length < 2 ? 'border-red-300 focus:border-red-500' : 'border-slate-300 focus:border-blue-600'}`}
+                                    className={`w-full px-0 py-2 border-b focus:border-b-2 bg-transparent transition-all outline-none ${respondentName && respondentName.trim().split(' ').length < 2 ? 'border-red-300 focus:border-red-500' : 'border-slate-300 focus:border-[#35b6cf]'}`}
                                     value={respondentName}
                                     onChange={(e) => setRespondentName(e.target.value)}
                                 />
@@ -298,7 +357,7 @@ export const FormularioPublico: React.FC = () => {
                     {/* Questions */}
                     <div className={`space-y-4 transition-all duration-500 ${!isIdentityValid ? 'opacity-50 pointer-events-none blur-[2px] select-none' : 'opacity-100'}`}>
                         {questions.map((q) => (
-                            <div key={q.id} className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 transition-all hover:shadow-md">
+                            <div key={q.id} className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 sm:p-6 transition-all hover:shadow-md">
                                 <label className="block text-base font-normal text-slate-900 mb-4">
                                     {q.label}
                                     {q.required && <span className="text-red-500 ml-1">*</span>}
@@ -308,7 +367,7 @@ export const FormularioPublico: React.FC = () => {
                                     <div className="max-w-md">
                                         <input
                                             type="text"
-                                            className="w-full px-0 py-2 border-b border-slate-300 focus:border-b-2 focus:border-blue-600 bg-transparent transition-all outline-none placeholder:text-slate-400"
+                                            className="w-full px-0 py-2 border-b border-slate-300 focus:border-b-2 focus:border-[#35b6cf] bg-transparent transition-all outline-none placeholder:text-slate-400"
                                             placeholder="Sua resposta"
                                             value={answers[q.id] || ''}
                                             onChange={(e) => handleAnswerChange(q.id, e.target.value)}
@@ -318,7 +377,7 @@ export const FormularioPublico: React.FC = () => {
 
                                 {q.question_type === 'long_text' && (
                                     <textarea
-                                        className="w-full px-0 py-2 border-b border-slate-300 focus:border-b-2 focus:border-blue-600 bg-transparent transition-all outline-none min-h-[40px] placeholder:text-slate-400 resize-none overflow-hidden"
+                                        className="w-full px-0 py-2 border-b border-slate-300 focus:border-b-2 focus:border-[#35b6cf] bg-transparent transition-all outline-none min-h-[40px] placeholder:text-slate-400 resize-none overflow-hidden"
                                         placeholder="Sua resposta"
                                         value={answers[q.id] || ''}
                                         onChange={(e) => {
@@ -333,8 +392,8 @@ export const FormularioPublico: React.FC = () => {
                                     <div className="space-y-3">
                                         {[q.option_1, q.option_2, q.option_3, q.option_4, q.option_5].filter(Boolean).map((opt, i) => (
                                             <label key={i} className="flex items-center cursor-pointer group">
-                                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mr-3 transition-colors ${answers[q.id] === opt ? 'border-blue-600' : 'border-slate-400 group-hover:border-slate-500'}`}>
-                                                    {answers[q.id] === opt && <div className="w-2.5 h-2.5 rounded-full bg-blue-600" />}
+                                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mr-3 transition-colors ${answers[q.id] === opt ? 'border-[#35b6cf]' : 'border-slate-400 group-hover:border-slate-500'}`}>
+                                                    {answers[q.id] === opt && <div className="w-2.5 h-2.5 rounded-full bg-[#35b6cf]" />}
                                                 </div>
                                                 <input
                                                     type="radio"
@@ -353,7 +412,7 @@ export const FormularioPublico: React.FC = () => {
                                 {q.question_type === 'select' && (
                                     <div className="relative max-w-xs">
                                         <select
-                                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-md focus:border-blue-500 transition-all outline-none appearance-none cursor-pointer hover:border-slate-300"
+                                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-md focus:border-[#35b6cf] transition-all outline-none appearance-none cursor-pointer hover:border-slate-300"
                                             value={answers[q.id] || ''}
                                             onChange={(e) => handleAnswerChange(q.id, e.target.value)}
                                         >
@@ -378,8 +437,8 @@ export const FormularioPublico: React.FC = () => {
                                             {Array.from({ length: (q.max_value || 5) - (q.min_value || 1) + 1 }, (_, i) => (q.min_value || 1) + i).map((val) => (
                                                 <div key={val} className="flex flex-col items-center gap-2 cursor-pointer" onClick={() => handleAnswerChange(q.id, val)}>
                                                     <span className="text-xs font-medium text-slate-500">{val}</span>
-                                                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${answers[q.id] === val ? 'border-blue-600' : 'border-slate-400 hover:border-slate-500'}`}>
-                                                        {answers[q.id] === val && <div className="w-2.5 h-2.5 rounded-full bg-blue-600" />}
+                                                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${answers[q.id] === val ? 'border-[#35b6cf]' : 'border-slate-400 hover:border-slate-500'}`}>
+                                                        {answers[q.id] === val && <div className="w-2.5 h-2.5 rounded-full bg-[#35b6cf]" />}
                                                     </div>
                                                 </div>
                                             ))}
@@ -402,7 +461,7 @@ export const FormularioPublico: React.FC = () => {
                         <button
                             onClick={handleSubmit}
                             disabled={!isIdentityValid}
-                            className="bg-blue-600 text-white px-6 py-2 rounded-md font-medium text-sm hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ring-offset-2 focus:ring-2 focus:ring-blue-500"
+                            className="bg-[#35b6cf] text-white px-6 py-2 rounded-md font-medium text-sm hover:bg-[#2ca1b7] transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ring-offset-2 focus:ring-2 focus:ring-[#35b6cf]"
                         >
                             Enviar
                         </button>
