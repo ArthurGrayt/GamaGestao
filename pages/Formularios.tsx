@@ -4,8 +4,10 @@ import { supabase } from '../services/supabase';
 import {
     Plus, Search, FileText, BarChart2, Link as LinkIcon,
     MoreVertical, Edit2, Trash2, X, Check, Copy, ExternalLink,
-    ChevronUp, ChevronDown, List, Type, MessageSquare, Star
+    ChevronUp, ChevronDown, List, Type, MessageSquare, Star,
+    User, Calendar, Clock, ArrowLeft, ChevronRight
 } from 'lucide-react';
+import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { Form, FormQuestion, FormAnswer, QuestionType } from '../types';
 
 /* --- Internal UI Components --- */
@@ -237,6 +239,10 @@ export const Formularios: React.FC = () => {
     const [questions, setQuestions] = useState<FormQuestion[]>([]);
     const [loadingStats, setLoadingStats] = useState(false);
 
+    // New Analytics State
+    const [analyticsTab, setAnalyticsTab] = useState<'overview' | 'individual'>('overview');
+    const [selectedRespondent, setSelectedRespondent] = useState<string | null>(null); // Groups by responder_identifier + timestamp key
+
     const handleViewStats = async (form: Form) => {
         setAnalyticsForm(form);
         setViewMode('analytics');
@@ -285,6 +291,44 @@ export const Formularios: React.FC = () => {
         return distribution;
     };
 
+    const getRespondents = () => {
+        // Group answers by responder_identifier + created_at
+        // If identifier is missing, use 'Anônimo'
+        const groups: Record<string, {
+            id: string; // key
+            identifier: string;
+            name: string;
+            date: string;
+            answerCount: number;
+        }> = {};
+
+        answers.forEach(a => {
+            // Create a unique key for the submission. 
+            // In a real app we'd use a submission_id. Here we assume created_at is unique per submission.
+            const key = `${a.responder_identifier || 'anon'}_${a.created_at}`;
+
+            if (!groups[key]) {
+                groups[key] = {
+                    id: key,
+                    identifier: a.responder_identifier || 'Anônimo',
+                    name: a.responder_name || 'Sem nome',
+                    date: a.created_at,
+                    answerCount: 0
+                };
+            }
+            groups[key].answerCount++;
+        });
+
+        return Object.values(groups).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    };
+
+    const getRespondentAnswers = (key: string) => {
+        // Reverse engineer the key or just filter
+        const [identifierPrefix, dateSuffix] = key.split('_20'); // Simple split attempt? No, let's just filter by exact match derived from key construction
+        // Actually, just iterating is safer since we built the key from fields
+        return answers.filter(a => `${a.responder_identifier || 'anon'}_${a.created_at}` === key);
+    };
+
     // Question Editor Helpers
     const addQuestion = (type: QuestionType) => {
         setEditingForm(prev => ({
@@ -328,6 +372,24 @@ export const Formularios: React.FC = () => {
         setEditingForm(prev => ({ ...prev!, questions: newQuestions }));
     };
 
+    const duplicateQuestion = (index: number) => {
+        if (!editingForm?.questions) return;
+        const questionToClone = editingForm.questions[index];
+        const newQuestion = {
+            ...questionToClone,
+            id: undefined, // ensure it's treated as a new question
+            label: `${questionToClone.label} (Cópia)`,
+        };
+
+        const newQuestions = [...editingForm.questions];
+        newQuestions.splice(index + 1, 0, newQuestion);
+
+        // Re-index questions just in case, though usually handled on save
+        const reindexed = newQuestions.map((q, i) => ({ ...q, question_order: i }));
+
+        setEditingForm(prev => ({ ...prev!, questions: reindexed }));
+    };
+
     const copyToClipboard = (slug: string) => {
         const url = `${window.location.origin}/#/form/${slug}`;
         navigator.clipboard.writeText(url);
@@ -339,118 +401,332 @@ export const Formularios: React.FC = () => {
     );
 
     if (viewMode === 'analytics' && analyticsForm) {
+        // Prepare Colors for Charts
+        const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1'];
+
+        const renderOverview = () => (
+            <div className="space-y-8 animate-in fade-in duration-300">
+                {/* Summary Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 relative overflow-hidden group">
+                        <div className="absolute right-0 top-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
+                            <BarChart2 size={80} className="text-blue-600" />
+                        </div>
+                        <h4 className="text-blue-600 font-bold text-sm uppercase tracking-wider mb-2">Total de Respostas</h4>
+                        <p className="text-4xl font-bold text-slate-800">{getTotalResponses()}</p>
+                    </div>
+                    <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100 relative overflow-hidden group">
+                        <div className="absolute right-0 top-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
+                            <Check size={80} className="text-emerald-600" />
+                        </div>
+                        <h4 className="text-emerald-600 font-bold text-sm uppercase tracking-wider mb-2">Perguntas Ativas</h4>
+                        <p className="text-4xl font-bold text-slate-800">{questions.length}</p>
+                    </div>
+                    <div className="bg-purple-50 p-6 rounded-2xl border border-purple-100 relative overflow-hidden group">
+                        <div className="absolute right-0 top-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
+                            <Clock size={80} className="text-purple-600" />
+                        </div>
+                        <h4 className="text-purple-600 font-bold text-sm uppercase tracking-wider mb-2">Última Resposta</h4>
+                        <p className="text-lg font-bold text-slate-800">
+                            {answers.length > 0 ? new Date(answers[0].created_at).toLocaleDateString() : '-'}
+                        </p>
+                    </div>
+                </div>
+
+                {/* Detailed Analysis */}
+                <div className="space-y-6">
+                    <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                        <BarChart2 className="text-slate-400" size={20} />
+                        Análise por Pergunta
+                    </h3>
+
+                    {questions.map((q) => (
+                        <Card key={q.id} className="p-6">
+                            <div className="flex items-start gap-4 mb-6 border-b border-slate-100 pb-4">
+                                <div className="p-2 bg-slate-100 rounded-lg text-slate-500">
+                                    {q.question_type === 'rating' && <Star size={20} />}
+                                    {(q.question_type === 'choice' || q.question_type === 'select') && <List size={20} />}
+                                    {(q.question_type === 'short_text' || q.question_type === 'long_text') && <MessageSquare size={20} />}
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-slate-700 text-lg">{q.label}</h4>
+                                    <span className="text-xs font-medium bg-slate-100 text-slate-500 px-2 py-1 rounded mt-1 inline-block">
+                                        {q.question_type === 'rating' ? 'Escala/Nota' : q.question_type === 'choice' ? 'Múltipla Escolha' : q.question_type === 'select' ? 'Dropdown' : 'Texto'}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="pl-0 md:pl-14">
+                                {/* RATING ANALYSIS */}
+                                {q.question_type === 'rating' && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                                        <div className="bg-slate-50 rounded-2xl p-6 flex flex-col items-center justify-center">
+                                            <span className="text-6xl font-black text-blue-600">{getAverageRating(q.id)}</span>
+                                            <div className="flex gap-1 my-2">
+                                                {Array.from({ length: 5 }).map((_, i) => (
+                                                    <Star key={i} size={16} className={`${i < Math.round(Number(getAverageRating(q.id))) ? 'text-amber-400 fill-amber-400' : 'text-slate-300'}`} />
+                                                ))}
+                                            </div>
+                                            <span className="text-slate-400 font-medium">Média Geral (Max {q.max_value})</span>
+                                        </div>
+                                        <div>
+                                            {/* Simple histogram could go here, but for now just summary */}
+                                            <div className="space-y-2">
+                                                <p className="text-sm font-medium text-slate-600">Distribuição de notas:</p>
+                                                {/* We could map 1-5 and show bars, but reusing choice logic is better if we had time. Keeping it simple. */}
+                                                <div className="p-4 bg-slate-50 rounded-xl text-center text-slate-500 text-sm">
+                                                    Visualize a média calculada à esquerda com base em {answers.filter(a => a.question_id === q.id).length} respostas.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* CHOICE / SELECT ANALYSIS (PIE CHART) */}
+                                {(q.question_type === 'choice' || q.question_type === 'select') && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                        <div className="h-64 relative">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <PieChart>
+                                                    <Pie
+                                                        data={Object.entries(getChoiceDistribution(q.id)).map(([name, value]) => ({ name, value }))}
+                                                        cx="50%"
+                                                        cy="50%"
+                                                        innerRadius={60}
+                                                        outerRadius={80}
+                                                        paddingAngle={5}
+                                                        dataKey="value"
+                                                    >
+                                                        {Object.entries(getChoiceDistribution(q.id)).map((entry, index) => (
+                                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                        ))}
+                                                    </Pie>
+                                                    <RechartsTooltip formatter={(value: number) => [`${value} votos`, 'Quantidade']} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                                                    <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                                                </PieChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                        <div className="space-y-3 flex flex-col justify-center">
+                                            {Object.entries(getChoiceDistribution(q.id))
+                                                .sort(([, a], [, b]) => b - a)
+                                                .map(([option, count], idx) => (
+                                                    <div key={option} className="group">
+                                                        <div className="flex justify-between text-sm mb-1">
+                                                            <span className="font-medium text-slate-700 flex items-center gap-2">
+                                                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[idx % COLORS.length] }}></div>
+                                                                {option}
+                                                            </span>
+                                                            <span className="text-slate-500 font-mono bg-slate-50 px-2 rounded">{count} ({Math.round(count / getTotalResponses() * 100)}%)</span>
+                                                        </div>
+                                                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                                            <div className="h-full rounded-full transition-all duration-500" style={{ width: `${(count / getTotalResponses()) * 100}%`, backgroundColor: COLORS[idx % COLORS.length] }}></div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* TEXT ANALYSIS */}
+                                {(q.question_type === 'short_text' || q.question_type === 'long_text') && (
+                                    <div className="bg-slate-50 rounded-xl p-0 overflow-hidden border border-slate-100">
+                                        <div className="p-3 bg-slate-100 border-b border-slate-200 flex justify-between items-center">
+                                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Respostas Recentes</span>
+                                            <span className="text-xs text-slate-400">{answers.filter(a => a.question_id === q.id).length} textos</span>
+                                        </div>
+                                        <div className="max-h-64 overflow-y-auto p-2">
+                                            <ul className="space-y-2">
+                                                {answers
+                                                    .filter(a => a.question_id === q.id && a.answer_text)
+                                                    .slice(0, 10) // Show last 10
+                                                    .map((a, i) => (
+                                                        <li key={i} className="text-sm text-slate-600 bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
+                                                            <p className="italic">"{a.answer_text}"</p>
+                                                            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-50">
+                                                                <User size={12} className="text-slate-400" />
+                                                                <span className="text-xs text-slate-400">{a.responder_identifier || 'Anônimo'}</span>
+                                                                <span className="text-slate-300">•</span>
+                                                                <span className="text-xs text-slate-400">{new Date(a.created_at).toLocaleDateString()}</span>
+                                                            </div>
+                                                        </li>
+                                                    ))}
+                                            </ul>
+                                            {answers.filter(a => a.question_id === q.id).length === 0 && (
+                                                <div className="p-8 text-center text-slate-400 text-sm">Nenhuma resposta de texto ainda.</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </Card>
+                    ))}
+                </div>
+            </div>
+        );
+
+        const renderIndividual = () => {
+            const respondents = getRespondents();
+
+            // DETAIL VIEW (Selected Respondent)
+            if (selectedRespondent) {
+                const respondentAnswers = getRespondentAnswers(selectedRespondent);
+                // Try to find metadata from the first answer
+                const meta = respondentAnswers[0];
+                const respondentName = meta?.responder_name || 'Participante';
+                const respondentId = meta?.responder_identifier || 'Anônimo';
+                const date = meta ? new Date(meta.created_at).toLocaleString() : '-';
+
+                return (
+                    <div className="animate-in slide-in-from-right duration-300">
+                        <div className="flex items-center gap-4 mb-6">
+                            <Button variant="outline" onClick={() => setSelectedRespondent(null)} className="px-3 gap-2">
+                                <ArrowLeft size={16} />
+                                Voltar para lista
+                            </Button>
+                            <div className="flex-1">
+                                <div className="flex items-baseline gap-3">
+                                    <h2 className="text-xl font-bold text-slate-800">{respondentName}</h2>
+                                    <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-mono">{respondentId}</span>
+                                </div>
+                                <p className="text-slate-500 text-sm flex items-center gap-1 mt-1">
+                                    <Calendar size={14} />
+                                    Enviado em {date}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-6 max-w-3xl mx-auto">
+                            {questions.map((q, idx) => {
+                                const ans = respondentAnswers.find(a => a.question_id === q.id);
+                                return (
+                                    <div key={q.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
+                                        <div className="absolute top-0 left-0 w-1 h-full bg-slate-200"></div>
+                                        <span className="text-xs font-bold text-slate-400 uppercase mb-2 block tracking-wider">Pergunta {idx + 1}</span>
+                                        <h3 className="text-lg font-medium text-slate-800 mb-4">{q.label}</h3>
+
+                                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                            {ans ? (
+                                                <>
+                                                    {(q.question_type === 'short_text' || q.question_type === 'long_text') && (
+                                                        <p className="text-slate-700 whitespace-pre-wrap">{ans.answer_text}</p>
+                                                    )}
+                                                    {(q.question_type === 'choice' || q.question_type === 'select') && (
+                                                        <div className="flex items-center gap-2">
+                                                            <Check className="text-emerald-500" size={18} />
+                                                            <span className="font-medium text-slate-800">{ans.answer_text}</span>
+                                                        </div>
+                                                    )}
+                                                    {q.question_type === 'rating' && (
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="flex">
+                                                                {Array.from({ length: 5 }).map((_, i) => (
+                                                                    <Star key={i} size={18} className={`${i < (ans.answer_number || 0) ? 'text-amber-400 fill-amber-400' : 'text-slate-300'}`} />
+                                                                ))}
+                                                            </div>
+                                                            <span className="font-bold text-slate-700 ml-2">{ans.answer_number} / {q.max_value}</span>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <span className="text-slate-400 italic">Não respondido</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            }
+
+            // LIST VIEW
+            return (
+                <div className="space-y-4 animate-in fade-in duration-300">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-bold text-slate-800">Participantes ({respondents.length})</h3>
+                        {/* Could add download CSV here */}
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        {respondents.length === 0 ? (
+                            <div className="p-12 text-center text-slate-400">
+                                Nenhuma resposta registrada ainda.
+                            </div>
+                        ) : (
+                            <div className="divide-y divide-slate-100">
+                                {respondents.map((r) => (
+                                    <div
+                                        key={r.id}
+                                        className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between cursor-pointer group"
+                                        onClick={() => setSelectedRespondent(r.id)}
+                                    >
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg">
+                                                {r.name.charAt(0).toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <h4 className="font-bold text-slate-700">{r.name}</h4>
+                                                <span className="text-xs text-slate-400 font-mono">{r.identifier}</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-6">
+                                            <div className="text-right">
+                                                <span className="block text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                                                    Running ID: {r.id.split('_')[1]?.slice(-4) || '...'}
+                                                </span>
+                                                <span className="text-xs text-slate-400">
+                                                    {new Date(r.date).toLocaleDateString()} às {new Date(r.date).toLocaleTimeString().slice(0, 5)}
+                                                </span>
+                                            </div>
+                                            <div className="p-2 rounded-full text-slate-300 group-hover:text-blue-500 group-hover:bg-blue-50 transition-colors">
+                                                <ChevronRight size={20} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
         return (
             <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <header className="flex items-center gap-4 mb-8">
-                    <Button variant="outline" onClick={() => setViewMode('list')} className="px-3">
-                        <ChevronUp className="rotate-[-90deg]" size={20} />
-                        Voltar
-                    </Button>
-                    <div>
-                        <h1 className="text-2xl font-bold text-slate-800">Relatório: {analyticsForm.title}</h1>
-                        <p className="text-slate-500 text-sm mt-1">{getTotalResponses()} respostas totais até agora</p>
+                <header className="mb-8">
+                    <div className="flex items-center gap-4 mb-6">
+                        <Button variant="outline" onClick={() => setViewMode('list')} className="px-3">
+                            <ChevronUp className="rotate-[-90deg]" size={20} />
+                            Voltar
+                        </Button>
+                        <div>
+                            <h1 className="text-2xl font-bold text-slate-800">Relatório: {analyticsForm.title}</h1>
+                            <p className="text-slate-500 text-sm mt-1">{getTotalResponses()} respostas totais até agora</p>
+                        </div>
+                    </div>
+
+                    {/* Tabs */}
+                    <div className="flex p-1 bg-slate-100 rounded-xl w-fit">
+                        <button
+                            onClick={() => { setAnalyticsTab('overview'); setSelectedRespondent(null); }}
+                            className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${analyticsTab === 'overview' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Visão Geral
+                        </button>
+                        <button
+                            onClick={() => setAnalyticsTab('individual')}
+                            className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${analyticsTab === 'individual' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Respostas Individuais
+                        </button>
                     </div>
                 </header>
 
                 {loadingStats ? (
                     <div className="flex-1 flex justify-center items-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>
                 ) : (
-                    <div className="overflow-y-auto pb-20 space-y-8">
-                        {/* Summary Cards */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
-                                <h4 className="text-blue-600 font-bold text-sm uppercase tracking-wider mb-2">Total de Respostas</h4>
-                                <p className="text-4xl font-bold text-slate-800">{getTotalResponses()}</p>
-                            </div>
-                            <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100">
-                                <h4 className="text-emerald-600 font-bold text-sm uppercase tracking-wider mb-2">Perguntas Ativas</h4>
-                                <p className="text-4xl font-bold text-slate-800">{questions.length}</p>
-                            </div>
-                            <div className="bg-purple-50 p-6 rounded-2xl border border-purple-100">
-                                <h4 className="text-purple-600 font-bold text-sm uppercase tracking-wider mb-2">Última Resposta</h4>
-                                <p className="text-lg font-bold text-slate-800">
-                                    {answers.length > 0 ? new Date(answers[0].created_at).toLocaleDateString() : '-'}
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* Detailed Analysis */}
-                        <div className="space-y-6">
-                            <h3 className="text-xl font-bold text-slate-800">Análise por Pergunta</h3>
-
-                            {questions.map((q) => (
-                                <Card key={q.id} className="p-6">
-                                    <div className="flex items-start gap-4 mb-4">
-                                        <div className="p-2 bg-slate-100 rounded-lg text-slate-500">
-                                            {q.question_type === 'rating' && <Star size={20} />}
-                                            {(q.question_type === 'choice' || q.question_type === 'select') && <List size={20} />}
-                                            {(q.question_type === 'short_text' || q.question_type === 'long_text') && <MessageSquare size={20} />}
-                                        </div>
-                                        <div>
-                                            <h4 className="font-bold text-slate-700 text-lg">{q.label}</h4>
-                                            <span className="text-xs font-medium bg-slate-100 text-slate-500 px-2 py-1 rounded mt-1 inline-block">
-                                                {q.question_type === 'rating' ? 'Escala/Nota' : q.question_type === 'choice' ? 'Múltipla Escolha' : q.question_type === 'select' ? 'Dropdown' : 'Texto'}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <div className="pl-14">
-                                        {/* RATING ANALYSIS */}
-                                        {q.question_type === 'rating' && (
-                                            <div>
-                                                <div className="flex items-end gap-2 mb-4">
-                                                    <span className="text-5xl font-bold text-blue-600">{getAverageRating(q.id)}</span>
-                                                    <span className="text-slate-400 font-medium mb-1">/ {q.max_value} (Média)</span>
-                                                </div>
-                                                <div className="h-4 bg-slate-100 rounded-full overflow-hidden w-full max-w-md">
-                                                    <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(Number(getAverageRating(q.id)) / (q.max_value || 5)) * 100}%` }}></div>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* CHOICE ANALYSIS */}
-                                        {(q.question_type === 'choice' || q.question_type === 'select') && (
-                                            <div className="space-y-3">
-                                                {Object.entries(getChoiceDistribution(q.id)).map(([option, count]) => (
-                                                    <div key={option}>
-                                                        <div className="flex justify-between text-sm mb-1">
-                                                            <span className="font-medium text-slate-700">{option}</span>
-                                                            <span className="text-slate-500">{count} votos ({Math.round(count / getTotalResponses() * 100)}%)</span>
-                                                        </div>
-                                                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                                            <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${(count / getTotalResponses()) * 100}%` }}></div>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-
-                                        {/* TEXT ANALYSIS */}
-                                        {(q.question_type === 'short_text' || q.question_type === 'long_text') && (
-                                            <div className="bg-slate-50 rounded-xl p-4 max-h-60 overflow-y-auto">
-                                                <ul className="space-y-3">
-                                                    {answers
-                                                        .filter(a => a.question_id === q.id && a.answer_text)
-                                                        .slice(0, 10) // Show last 10
-                                                        .map((a, i) => (
-                                                            <li key={i} className="text-sm text-slate-600 border-b border-slate-100 last:border-0 pb-2 last:pb-0">
-                                                                <p>"{a.answer_text}"</p>
-                                                                <span className="text-xs text-slate-400 mt-1 block">{new Date(a.created_at).toLocaleDateString()} - {a.responder_name}</span>
-                                                            </li>
-                                                        ))}
-                                                </ul>
-                                                {answers.filter(a => a.question_id === q.id).length > 10 && (
-                                                    <p className="text-center text-xs text-slate-400 mt-3">Exibindo as 10 últimas de {answers.filter(a => a.question_id === q.id).length} respostas</p>
-                                                )}
-                                                {answers.filter(a => a.question_id === q.id).length === 0 && (
-                                                    <p className="text-slate-400 text-sm text-center">Nenhuma resposta de texto ainda.</p>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                </Card>
-                            ))}
-                        </div>
+                    <div className="overflow-y-auto pb-20">
+                        {analyticsTab === 'overview' ? renderOverview() : renderIndividual()}
                     </div>
                 )}
             </div>
@@ -609,6 +885,7 @@ export const Formularios: React.FC = () => {
                                     <div className="absolute right-4 top-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button onClick={() => moveQuestion(idx, 'up')} className="p-1 hover:bg-slate-200 rounded"><ChevronUp size={16} /></button>
                                         <button onClick={() => moveQuestion(idx, 'down')} className="p-1 hover:bg-slate-200 rounded"><ChevronDown size={16} /></button>
+                                        <button onClick={() => duplicateQuestion(idx)} className="p-1 hover:bg-blue-100 text-blue-600 rounded mr-1"><Copy size={16} /></button>
                                         <button onClick={() => removeQuestion(idx)} className="p-1 hover:bg-red-100 text-red-500 rounded"><Trash2 size={16} /></button>
                                     </div>
 

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../services/supabase';
 import { Form, FormQuestion } from '../types';
-import { CheckCircle, AlertCircle, ChevronRight, Send, Star, User, Hash, ChevronDown } from 'lucide-react';
+import { CheckCircle, Check, AlertCircle, ChevronRight, Send, Star, User, Hash, ChevronDown } from 'lucide-react';
 
 const LoadingScreen = () => (
     <div className="fixed inset-0 bg-gray-50 z-50 flex items-center justify-center font-sans antialiased">
@@ -59,6 +59,43 @@ const LoadingScreen = () => (
         </div>
     </div>
 );
+
+const CustomSelect = ({ options, value, onChange, placeholder = 'Selecione...' }: any) => {
+    const [isOpen, setIsOpen] = useState(false);
+
+    return (
+        <div className="relative max-w-xs">
+            {isOpen && <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />}
+            <div
+                onClick={() => setIsOpen(!isOpen)}
+                className={`w-full px-4 py-3 bg-white border rounded-md transition-all cursor-pointer flex justify-between items-center relative z-20 ${isOpen ? 'border-[#35b6cf] ring-2 ring-[#35b6cf]/10' : 'border-slate-200 hover:border-slate-300'}`}
+            >
+                <span className={value ? 'text-slate-800' : 'text-slate-400'}>
+                    {value || placeholder}
+                </span>
+                <ChevronDown size={16} className={`text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+            </div>
+
+            {isOpen && (
+                <div className="absolute z-20 w-full mt-1 bg-white border border-slate-100 rounded-lg shadow-xl max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
+                    {options.map((opt: string) => (
+                        <div
+                            key={opt}
+                            onClick={() => {
+                                onChange(opt);
+                                setIsOpen(false);
+                            }}
+                            className={`px-4 py-2.5 text-sm cursor-pointer transition-colors flex justify-between items-center ${value === opt ? 'bg-blue-50 text-[#35b6cf] font-medium' : 'text-slate-600 hover:bg-slate-50'}`}
+                        >
+                            {opt}
+                            {value === opt && <Check size={14} />}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
 
 export const FormularioPublico: React.FC = () => {
     const { slug } = useParams<{ slug: string }>();
@@ -410,21 +447,12 @@ export const FormularioPublico: React.FC = () => {
                                 )}
 
                                 {q.question_type === 'select' && (
-                                    <div className="relative max-w-xs">
-                                        <select
-                                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-md focus:border-[#35b6cf] transition-all outline-none appearance-none cursor-pointer hover:border-slate-300"
-                                            value={answers[q.id] || ''}
-                                            onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                        >
-                                            <option value="" disabled>Escolher</option>
-                                            {[q.option_1, q.option_2, q.option_3, q.option_4, q.option_5].filter(Boolean).map((opt, i) => (
-                                                <option key={i} value={opt}>{opt}</option>
-                                            ))}
-                                        </select>
-                                        <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none text-slate-500">
-                                            <ChevronDown size={16} />
-                                        </div>
-                                    </div>
+                                    <CustomSelect
+                                        options={[q.option_1, q.option_2, q.option_3, q.option_4, q.option_5].filter(Boolean)}
+                                        value={answers[q.id] || ''}
+                                        onChange={(val: string) => handleAnswerChange(q.id, val)}
+                                        placeholder="Escolher opção..."
+                                    />
                                 )}
 
                                 {q.question_type === 'rating' && (
