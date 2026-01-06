@@ -313,7 +313,7 @@ export const FormularioPublico: React.FC = () => {
                         <div className="pt-4 flex justify-between items-center border-t border-slate-100 mt-4 shrink-0">
 
                             <div className="flex gap-3">
-                                <button className="text-slate-500 text-xs font-medium hover:bg-slate-50 hover:text-red-500 px-3 py-1.5 rounded transition-colors">Limpar</button>
+
                                 <button
                                     onClick={() => setStep('form')}
                                     className="bg-[#35b6cf] text-white px-5 py-1.5 rounded-md font-medium text-sm hover:bg-[#2ca1b7] transition-colors shadow-sm ring-offset-2 focus:ring-2 focus:ring-[#35b6cf]"

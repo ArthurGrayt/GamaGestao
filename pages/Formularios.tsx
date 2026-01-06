@@ -137,6 +137,19 @@ export const Formularios: React.FC = () => {
         setIsEditorOpen(true);
     };
 
+    const handleDeleteForm = async (id: number) => {
+        if (!confirm('Tem certeza que deseja excluir este formulário? Todas as respostas serão perdidas.')) return;
+
+        try {
+            const { error } = await supabase.from('forms').delete().eq('id', id);
+            if (error) throw error;
+            fetchForms();
+        } catch (error) {
+            console.error('Error deleting form:', error);
+            alert('Erro ao excluir formulário');
+        }
+    };
+
     const handleSaveForm = async () => {
         if (!editingForm?.title || !editingForm?.slug) {
             alert('Título e Slug são obrigatórios');
@@ -773,8 +786,16 @@ export const Formularios: React.FC = () => {
                                     <button
                                         onClick={() => handleEdit(form)}
                                         className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                        title="Editar"
                                     >
                                         <Edit2 size={16} />
+                                    </button>
+                                    <button
+                                        onClick={() => handleDeleteForm(form.id)}
+                                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                        title="Excluir"
+                                    >
+                                        <Trash2 size={16} />
                                     </button>
                                 </div>
                             </div>
