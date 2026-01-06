@@ -54,3 +54,41 @@ export interface Cliente {
   created_at: string;
   status: string;
 }
+
+export type QuestionType = 'short_text' | 'long_text' | 'choice' | 'rating' | 'select';
+
+export interface Form {
+  id: number;
+  title: string;
+  description: string;
+  slug: string;
+  active: boolean;
+  created_at: string;
+}
+
+export interface FormQuestion {
+  id: number;
+  form_id: number;
+  label: string;
+  question_type: QuestionType;
+  required: boolean;
+  question_order: number;
+  option_1?: string;
+  option_2?: string;
+  option_3?: string;
+  option_4?: string;
+  option_5?: string;
+  min_value?: number;
+  max_value?: number;
+}
+
+export interface FormAnswer {
+  id: number;
+  form_id: number;
+  question_id: number;
+  responder_name?: string;
+  responder_identifier?: string;
+  answer_text?: string;
+  answer_number?: number;
+  created_at: string;
+}

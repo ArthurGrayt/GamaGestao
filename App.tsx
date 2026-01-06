@@ -12,6 +12,8 @@ const Comercial = React.lazy(() => import('./pages/Comercial').then(module => ({
 const Clientes = React.lazy(() => import('./pages/Clientes').then(module => ({ default: module.Clientes })));
 const Usuarios = React.lazy(() => import('./pages/Usuarios').then(module => ({ default: module.Usuarios })));
 const Auditoria = React.lazy(() => import('./pages/Auditoria').then(module => ({ default: module.Auditoria })));
+const Formularios = React.lazy(() => import('./pages/Formularios').then(module => ({ default: module.Formularios })));
+const FormularioPublico = React.lazy(() => import('./pages/FormularioPublico').then(module => ({ default: module.FormularioPublico })));
 
 // Loading Component
 const PageLoader = () => (
@@ -29,6 +31,7 @@ function App() {
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/form/:slug" element={<FormularioPublico />} />
 
           <Route path="/" element={<MainLayout />}>
             <Route index element={<Dashboard />} />
@@ -38,9 +41,8 @@ function App() {
             <Route path="operacional" element={<Operacional />} />
             <Route path="comercial" element={<Comercial />} />
             <Route path="usuarios" element={<Usuarios />} />
-            <Route path="comercial" element={<Comercial />} />
-            <Route path="usuarios" element={<Usuarios />} />
             <Route path="auditoria" element={<Auditoria />} />
+            <Route path="formularios" element={<Formularios />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

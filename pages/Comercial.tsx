@@ -2,16 +2,31 @@ import React, { useContext, useEffect, useState } from 'react';
 import { FilterContext } from '../layouts/MainLayout';
 import { KPICard } from '../components/KPICard';
 import { supabase } from '../services/supabase';
-import { Briefcase, FileText, Award, Users } from 'lucide-react';
+import { FileText, Clock, CheckCircle, XCircle, PieChart as PieChartIcon, BarChart3, TrendingUp, Layers, Package } from 'lucide-react';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+
+interface ItemStat {
+  name: string;
+  count: number;
+}
 
 export const Comercial: React.FC = () => {
   const filter = useContext(FilterContext);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({
-    newClients: { current: 0, prev: 0 },
-    proposals: { current: 0, prev: 0 },
-    activeContracts: { current: 0, prev: 0 },
+    totalAllTime: { current: 0, prev: 0 },
+    totalPeriod: { current: 0, prev: 0 },
+    backlog: { current: 0, prev: 0 }, // Cumulative Pending
+    approved: { current: 0, prev: 0 }, // Period Approved
+    rejected: { current: 0, prev: 0 }, // Period Rejected
   });
+
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [itemStats, setItemStats] = useState<{
+    topFreq: ItemStat[];
+    topApproved: ItemStat[];
+    topRejected: ItemStat[];
+  }>({ topFreq: [], topApproved: [], topRejected: [] });
 
   useEffect(() => {
     const fetchData = async () => {
@@ -22,32 +37,163 @@ export const Comercial: React.FC = () => {
         const prevStart = filter.prevStartDate.toISOString();
         const prevEnd = filter.prevEndDate.toISOString();
 
-        const getClients = async (start: string, end: string) => {
-            const { count } = await supabase.from('clientes')
+        // Helper to fetch counts
+        const getCount = async (start: string | null, end: string, status?: string) => {
+          let query = supabase.from('proposta')
             .select('*', { count: 'exact', head: true })
-            .gte('created_at', start)
             .lte('created_at', end);
-            return count || 0;
-        }
 
-        const getProposals = async (start: string, end: string) => {
-            const { count } = await supabase.from('proposta')
-            .select('*', { count: 'exact', head: true })
-            .gte('created_at', start)
-            .lte('created_at', end);
-            return count || 0;
-        }
+          if (start) {
+            query = query.gte('created_at', start);
+          }
 
-        const currCli = await getClients(startDate, endDate);
-        const prevCli = await getClients(prevStart, prevEnd);
-        const currProp = await getProposals(startDate, endDate);
-        const prevProp = await getProposals(prevStart, prevEnd);
+          if (status) {
+            query = query.eq('status', status);
+          }
+
+          const { count, error } = await query;
+          if (error) console.error('Error fetching proposals:', error);
+          return count || 0;
+        };
+
+        // --- Current Period & Statuses ---
+        const [
+          allTimeCurrent,
+          periodTotal,
+          periodPending,
+          periodApproved,
+          periodRejected,
+          backlogCurrent
+        ] = await Promise.all([
+          getCount(null, endDate), // Total All Time (Cumulative up to now)
+          getCount(startDate, endDate), // Total In Period
+          getCount(startDate, endDate, 'PENDING'), // Pending IN PERIOD (For Chart)
+          getCount(startDate, endDate, 'APPROVED'), // Approved IN PERIOD
+          getCount(startDate, endDate, 'REJECTED'), // Rejected IN PERIOD
+          getCount(null, endDate, 'PENDING') // Backlog (Cumulative Pending)
+        ]);
+
+        // --- Previous Period ---
+        const [
+          allTimePrev,
+          prevPeriodTotal,
+          prevApproved,
+          prevRejected,
+          backlogPrev
+        ] = await Promise.all([
+          getCount(null, prevEnd),
+          getCount(prevStart, prevEnd),
+          getCount(prevStart, prevEnd, 'APPROVED'),
+          getCount(prevStart, prevEnd, 'REJECTED'),
+          getCount(null, prevEnd, 'PENDING')
+        ]);
 
         setData({
-            newClients: { current: currCli, prev: prevCli },
-            proposals: { current: currProp, prev: prevProp },
-            activeContracts: { current: 0, prev: 0 } // Logic depends on specific status fields not fully clear in schema
+          totalAllTime: { current: allTimeCurrent, prev: allTimePrev },
+          totalPeriod: { current: periodTotal, prev: prevPeriodTotal },
+          backlog: { current: backlogCurrent, prev: backlogPrev },
+          approved: { current: periodApproved, prev: prevApproved },
+          rejected: { current: periodRejected, prev: prevRejected },
         });
+
+        // --- Chart Data (Distribution of Proposals Created IN PERIOD) ---
+        const newChartData = [
+          { name: 'Aprovadas', value: periodApproved, color: '#10B981' }, // Emerald-500
+          { name: 'Pendentes', value: periodPending, color: '#F59E0B' }, // Amber-500
+          { name: 'Reprovadas', value: periodRejected, color: '#EF4444' }, // Red-500
+        ].filter(item => item.value > 0);
+
+        setChartData(newChartData);
+
+        // --- Item Statistics ---
+        // 1. Fetch Proposals in Period (to get IDs and Status)
+        const { data: proposals, error: propError } = await supabase
+          .from('proposta')
+          .select('id, status, itensproposta, created_at')
+          .gte('created_at', startDate)
+          .lte('created_at', endDate);
+
+        if (propError) {
+          console.error('Error fetching proposals for items:', propError);
+        } else if (proposals) {
+          // 2. Extract All Item IDs
+          const allItemIds: number[] = [];
+          proposals.forEach(p => {
+            if (Array.isArray(p.itensproposta)) {
+              allItemIds.push(...p.itensproposta);
+            }
+          });
+
+          if (allItemIds.length > 0) {
+            // 3. Fetch Item Details (Name + Status)
+            const uniqueIds = [...new Set(allItemIds)];
+
+            const { data: itemDetails, error: itemError } = await supabase
+              .from('itensproposta')
+              .select('id, idprocedimento, status, procedimento(nome)')
+              .in('id', uniqueIds);
+
+            if (itemError) {
+              console.error('Error fetching item details:', itemError);
+            } else if (itemDetails) {
+              // Map ID -> Details
+              const detailsMap = new Map<number, { name: string; status: string }>();
+              itemDetails.forEach((i: any) => {
+                detailsMap.set(i.id, {
+                  name: i.procedimento?.nome || 'Item Desconhecido',
+                  status: i.status
+                });
+              });
+
+              // 4. Calculate Stats
+              // Note: We use the ITEM's status now, not the proposal's status.
+              const freqMap: Record<string, number> = {};
+              const approvedMap: Record<string, number> = {};
+              const rejectedMap: Record<string, number> = {};
+
+              proposals.forEach(p => {
+                const items = p.itensproposta;
+
+                if (Array.isArray(items)) {
+                  items.forEach((itemId: number) => {
+                    const details = detailsMap.get(itemId);
+                    if (details) {
+                      // Freq
+                      freqMap[details.name] = (freqMap[details.name] || 0) + 1;
+
+                      // Check Item Status
+                      // Normalizing status check just in case (e.g. 'APPROVED', 'Approved', etc)
+                      const s = details.status?.toUpperCase() || '';
+
+                      if (s === 'APPROVED' || s === 'APROVADO') {
+                        approvedMap[details.name] = (approvedMap[details.name] || 0) + 1;
+                      } else if (s === 'REJECTED' || s === 'REPROVADO') {
+                        rejectedMap[details.name] = (rejectedMap[details.name] || 0) + 1;
+                      }
+                    }
+                  });
+                }
+              });
+
+              const getTop5 = (map: Record<string, number>) => {
+                return Object.entries(map)
+                  .map(([name, count]) => ({ name, count }))
+                  .sort((a, b) => b.count - a.count)
+                  .slice(0, 5);
+              };
+
+              setItemStats({
+                topFreq: getTop5(freqMap),
+                topApproved: getTop5(approvedMap),
+                topRejected: getTop5(rejectedMap)
+              });
+            }
+
+          } else {
+            // No items in proposals
+            setItemStats({ topFreq: [], topApproved: [], topRejected: [] });
+          }
+        }
 
       } catch (err) {
         console.error(err);
@@ -59,31 +205,191 @@ export const Comercial: React.FC = () => {
   }, [filter]);
 
   return (
-    <div className="space-y-8">
-      <h2 className="text-xl font-bold text-slate-800 border-b border-slate-200/50 pb-2">Setor Comercial</h2>
+    <div className="flex flex-col h-[calc(100vh-180px)] overflow-hidden">
+      <div className="flex flex-col gap-1 border-b border-slate-200/50 pb-4 shrink-0">
+        <h2 className="text-xl font-bold text-slate-800 tracking-tight">Setor Comercial</h2>
+        <p className="text-slate-500 text-xs">Acompanhamento de propostas e vendas</p>
+      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <KPICard
-          title="Novos Clientes"
-          value={data.newClients.current}
-          prevValue={data.newClients.prev}
-          isLoading={loading}
-          icon={<Users size={24} />}
-        />
-        <KPICard
-          title="Propostas Geradas"
-          value={data.proposals.current}
-          prevValue={data.proposals.prev}
-          isLoading={loading}
-          icon={<FileText size={24} />}
-        />
-        <KPICard
-          title="Contratos Ativos"
-          value={data.activeContracts.current}
-          prevValue={data.activeContracts.prev}
-          isLoading={loading}
-          icon={<Award size={24} />}
-        />
+      <div className="flex flex-col xl:flex-row gap-4 flex-1 min-h-0 pt-4">
+
+        {/* Left Column: Metrics & Item Analysis */}
+        <div className="flex flex-col gap-4 w-full xl:w-2/3 h-full overflow-y-auto custom-scrollbar pr-1">
+
+          {/* KPI Section */}
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 shrink-0">
+            {/* 1. Total Geral (All Time) */}
+            <KPICard
+              title="Total (Geral)"
+              value={data.totalAllTime.current}
+              prevValue={data.totalAllTime.prev}
+              isLoading={loading}
+              icon={<Layers size={20} />}
+            />
+
+            {/* 2. Total Periodo */}
+            <KPICard
+              title="Feitas no Período"
+              value={data.totalPeriod.current}
+              prevValue={data.totalPeriod.prev}
+              isLoading={loading}
+              icon={<FileText size={20} />}
+            />
+
+            {/* 3. Backlog (Cumulative Pending) */}
+            <KPICard
+              title="Backlog (Pendentes)"
+              value={data.backlog.current}
+              prevValue={data.backlog.prev}
+              isLoading={loading}
+              icon={<Clock size={20} />}
+              color="warning"
+            />
+
+            {/* 4. Approved (Period) - RENAMED */}
+            <KPICard
+              title="Propostas totalmente Aprovadas"
+              value={data.approved.current}
+              prevValue={data.approved.prev}
+              isLoading={loading}
+              icon={<CheckCircle size={20} />}
+              color="success"
+            />
+
+            {/* 5. Rejected (Period) */}
+            <KPICard
+              title="Reprovadas (Período)"
+              value={data.rejected.current}
+              prevValue={data.rejected.prev}
+              isLoading={loading}
+              icon={<XCircle size={20} />}
+              color="danger"
+            />
+          </div>
+
+          {/* Item Analysis Section */}
+          <div className="bg-white/60 backdrop-blur-xl rounded-xl border border-white/50 p-4 shadow-sm flex-1">
+            <div className="flex items-center gap-2 mb-4">
+              <Package className="text-blue-500" size={20} />
+              <h3 className="font-bold text-slate-700">Análise de Itens (Período)</h3>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Mais Frequentes */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 pb-2">Mais Frequentes</h4>
+                <div className="space-y-2">
+                  {loading ? (
+                    <p className="text-xs text-slate-400">Carregando...</p>
+                  ) : itemStats.topFreq.length > 0 ? (
+                    itemStats.topFreq.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center text-sm">
+                        <span className="text-slate-700 truncate mr-2" title={item.name}>{idx + 1}. {item.name}</span>
+                        <span className="font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full text-xs">{item.count}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">Nenhum dado</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Mais Aprovados */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider border-b border-emerald-100 pb-2">Mais Aprovados</h4>
+                <div className="space-y-2">
+                  {loading ? (
+                    <p className="text-xs text-slate-400">Carregando...</p>
+                  ) : itemStats.topApproved.length > 0 ? (
+                    itemStats.topApproved.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center text-sm">
+                        <span className="text-slate-700 truncate mr-2" title={item.name}>{idx + 1}. {item.name}</span>
+                        <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full text-xs">{item.count}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">Nenhum dado</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Mais Reprovados */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-red-500 uppercase tracking-wider border-b border-red-100 pb-2">Mais Reprovados</h4>
+                <div className="space-y-2">
+                  {loading ? (
+                    <p className="text-xs text-slate-400">Carregando...</p>
+                  ) : itemStats.topRejected.length > 0 ? (
+                    itemStats.topRejected.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center text-sm">
+                        <span className="text-slate-700 truncate mr-2" title={item.name}>{idx + 1}. {item.name}</span>
+                        <span className="font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full text-xs">{item.count}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">Nenhum dado</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        {/* Right Column: Chart */}
+        <div className="bg-white/60 backdrop-blur-xl p-4 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-full w-full xl:w-1/3 flex flex-col min-h-0">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h3 className="text-md font-bold text-slate-700">Distribuição do Período</h3>
+              <p className="text-xs text-slate-500">Status das propostas criadas</p>
+            </div>
+          </div>
+
+          <div className="w-full flex-1 min-h-0">
+            {loading ? (
+              <div className="h-full flex items-center justify-center">
+                <div className="w-8 h-8 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+              </div>
+            ) : chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={chartData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={5}
+                    dataKey="value"
+                    nameKey="name"
+                    stroke="none"
+                    label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
+                  >
+                    {chartData.map((entry, index) => (
+                      <Cell key={`cell - ${index} `} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                      borderRadius: '12px',
+                      border: '1px solid #E2E8F0',
+                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                    }}
+                    itemStyle={{ fontSize: '12px', fontWeight: 500, color: '#1e293b' }}
+                  />
+                  <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', fontWeight: 500 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                <PieChartIcon size={48} className="mb-2 opacity-20" />
+                <span className="text-sm">Sem dados no período</span>
+              </div>
+            )}
+          </div>
+        </div>
+
       </div>
     </div>
   );

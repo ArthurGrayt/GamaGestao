@@ -1,1229 +1,981 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabase';
-import { useLocation } from 'react-router-dom';
-import { Search, MapPin, Mail, Phone, Building, User, X, Briefcase, ChevronRight, ArrowLeft, Calendar, CreditCard, Users, Edit2, Save, Trash2, CheckCircle2, Circle, Plus, ListChecks, ArrowDownAZ, ArrowUpAZ, AlertTriangle } from 'lucide-react';
-import { format } from 'date-fns';
-import { useNotifications } from '../contexts/NotificationContext';
+import { Search, Filter, Plus, Building2, User, FileText, MoreVertical, CheckCircle, AlertCircle, ChevronRight, AlertTriangle, Trash2, X, ListChecks, Phone } from 'lucide-react';
 
-interface ClientInfo {
-    id: string;
-    razao_social: string;
-    nome_fantasia: string;
-    cnpj: string;
-    email: string;
-    telefone: string;
-    endereco: string;
-    status: string;
-    img_url?: string;
-    clientefrequente?: boolean;
-}
+/* --- Internal UI Components (Mocking User's UiComponents) --- */
 
-interface UnidadeData {
-    id: number;
-    nome_unidade: string;
-    empresaid: string;
-    clientes: ClientInfo;
-    clientes_documentacoes: {
-        id: number;
-        vencimento_pgr?: string;
-        vencimento_pcmso?: string;
-        vigencia_dir_aep?: string;
-        esocial_procuracao?: string;
-    }[];
-}
+const Button = ({ children, variant = 'primary', className = '', size = 'md', ...props }: any) => {
+    let baseClass = "inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none";
+    let variantClass = "";
 
-interface Unidade {
-    id: number;
-    nome_unidade: string;
-    empresaid: string;
-}
+    switch (variant) {
+        case 'primary': variantClass = "bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-500/20"; break;
+        case 'outline': variantClass = "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300"; break;
+        case 'ghost': variantClass = "text-slate-500 hover:bg-slate-100 hover:text-slate-700"; break;
+        case 'warning': variantClass = "bg-amber-50 border border-amber-200 text-amber-600 hover:bg-amber-100"; break;
+        case 'danger': variantClass = "bg-red-50 border border-red-200 text-red-600 hover:bg-red-100"; break;
+    }
 
-interface ClienteDocumentacao {
-    id?: number;
-    unidade_id: number;
-    unidade_nome_fantasia?: string;
-    razao_social: string;
-    cpf_cnpj: string;
-    parceria_comercial?: string;
-    esocial: boolean;
-    vencimento_pgr?: string;
-    vencimento_pcmso?: string;
-    vigencia_dir_aep?: string;
-    observacao_acao?: string;
-    contato?: string;
-    responsavel?: string;
-    esocial_procuracao?: string;
-}
+    let sizeClass = "";
+    switch (size) {
+        case 'sm': sizeClass = "px-3 py-1.5 text-xs"; break;
+        case 'md': sizeClass = "px-4 py-2.5 text-sm"; break;
+        case 'icon': sizeClass = "p-2"; break;
+    }
 
-interface Colaborador {
-    id: string;
-    nome: string;
-    cpf?: string;
-    data_nascimento?: string;
-    sexo?: string;
-    setor?: string;
-    cargo_nome?: string;
-    cargos?: { nome: string };
-    unidades?: { nome_unidade: string };
-}
+    if (className.includes('btn-icon-only')) sizeClass = "p-2.5"; // Override for icon-only buttons
 
-export const Clientes: React.FC = () => {
-    const [clientes, setClientes] = useState<UnidadeData[]>([]);
-    const [loading, setLoading] = useState(true);
+    return <button className={`${baseClass} ${variantClass} ${sizeClass} ${className}`} {...props}>{children}</button>;
+};
+
+const Input = ({ icon: Icon, className = '', ...props }: any) => {
+    return (
+        <div className={`relative group ${className}`}>
+            {Icon && (
+                <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                    <Icon size={16} className="text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                </div>
+            )}
+            <input
+                className={`w-full ${Icon ? 'pl-9' : 'pl-4'} pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500/50 transition-all`}
+                {...props}
+            />
+        </div>
+    );
+};
+
+const Card = ({ children, className = '', ...props }: any) => {
+    return (
+        <div className={`bg-white rounded-2xl border border-slate-200 p-4 hover:shadow-md transition-all cursor-pointer ${className}`} {...props}>
+            {children}
+        </div>
+    );
+};
+
+const Badge = ({ status, text }: any) => {
+    let colorClass = "";
+    switch (status) {
+        case 'success': colorClass = "bg-emerald-50 text-emerald-600 border-emerald-100"; break;
+        case 'warning': colorClass = "bg-amber-50 text-amber-600 border-amber-100"; break;
+        case 'error': colorClass = "bg-red-50 text-red-600 border-red-100"; break;
+        default: colorClass = "bg-slate-50 text-slate-600 border-slate-100";
+    }
+    return (
+        <span className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${colorClass}`}>
+            {text}
+        </span>
+    );
+};
+
+const Modal = ({ isOpen, onClose, title, children, tabs, activeTab, onTabChange }: any) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
+                    <div>
+                        <h2 className="text-xl font-bold text-slate-800">{title}</h2>
+                    </div>
+                    <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-red-500 transition-colors">
+                        <X size={20} />
+                    </button>
+                </div>
+
+                {tabs && (
+                    <div className="flex border-b border-slate-100 px-6 gap-6">
+                        {tabs.map((tab: any) => (
+                            <button
+                                key={tab.id}
+                                onClick={() => onTabChange(tab.id)}
+                                className={`py-4 text-sm font-medium border-b-2 transition-colors ${activeTab === tab.id ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                            >
+                                {tab.label}
+                            </button>
+                        ))}
+                    </div>
+                )}
+
+                <div className="p-6 overflow-y-auto flex-1 bg-slate-50/50">
+                    {children}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/* --- Main Component --- */
+
+export const Clientes = () => {
     const [searchTerm, setSearchTerm] = useState('');
-    const [typeFilter, setTypeFilter] = useState('Todos'); // 'Todos', 'Frequente', 'Esporádico'
-    const [docFilter, setDocFilter] = useState('Todos'); // 'Todos', 'PGR', 'PCMSO', 'DIR/AEP', 'Procuracao'
+    const [clients, setClients] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedClient, setSelectedClient] = useState<any>(null);
+    const [activeTab, setActiveTab] = useState('details');
 
-    // Selected Client for Details View (Now maps to Unit Data for context, or actual client)
-    // We will store the selected UnitData here to maintain context
-    const [selectedClient, setSelectedClient] = useState<UnidadeData | null>(null);
-    const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
-    const [loadingColab, setLoadingColab] = useState(false);
-    const [colabSearchTerm, setColabSearchTerm] = useState('');
-    const [colabSortOrder, setColabSortOrder] = useState<'asc' | 'desc'>('asc');
-
-    // Drill-down state for Colaborador Details
-    const [selectedColaborador, setSelectedColaborador] = useState<Colaborador | null>(null);
-    const location = useLocation();
-
-    // Edit Mode State
-    const [isEditing, setIsEditing] = useState(false);
-    const [isCreating, setIsCreating] = useState(false);
-    const [editForm, setEditForm] = useState<Partial<ClientInfo>>({});
-    const [saving, setSaving] = useState(false);
-
-    // Bulk Delete State
-    const [selectedClients, setSelectedClients] = useState<number[]>([]);
-    const [deleting, setDeleting] = useState(false);
+    // Selection Mode State
     const [isSelectionMode, setIsSelectionMode] = useState(false);
+    const [selectedIds, setSelectedIds] = useState<Set<any>>(new Set());
 
-    // Documentation Tab State
-    const [activeTab, setActiveTab] = useState<'info' | 'docs'>('info');
-    const [unidades, setUnidades] = useState<Unidade[]>([]);
-    const [selectedUnidadeId, setSelectedUnidadeId] = useState<number | null>(null);
-    const [docForm, setDocForm] = useState<Partial<ClienteDocumentacao>>({});
+    // Docs State
+    const [clientDocs, setClientDocs] = useState<any>(null);
     const [loadingDocs, setLoadingDocs] = useState(false);
-    const [savingDocs, setSavingDocs] = useState(false);
 
-    const { notifications, markAsRead } = useNotifications();
+    const [formData, setFormData] = useState<any>({});
+    const [hasChanges, setHasChanges] = useState(false);
 
+    // Filter Refs
+    const filterRef = useRef<HTMLDivElement>(null);
+    const docFilterRef = useRef<HTMLDivElement>(null);
 
+    const [showFilters, setShowFilters] = useState(false);
+    const [showDocFilters, setShowDocFilters] = useState(false);
+    const [showExpiredOnly, setShowExpiredOnly] = useState(false);
+
+    const [filters, setFilters] = useState({
+        orderBy: 'name_asc',
+        status: 'all',
+        minColabs: 0,
+        colabsOperator: 'gte', // 'gte' (>=) or 'lt' (<)
+        unitStatus: 'all' // 'all', 'with_units', 'no_units'
+    });
+
+    const [unitColabs, setUnitColabs] = useState<any[]>([]);
+    const [loadingColabsList, setLoadingColabsList] = useState(false);
+
+    // Fetch Collaborators when tab is active
+    useEffect(() => {
+        if (selectedClient && activeTab === 'colabs') {
+            const fetchColabs = async () => {
+                setLoadingColabsList(true);
+                const { data, error } = await supabase
+                    .from('colaboradores')
+                    .select(`
+                        id,
+                        nome,
+                        setor,
+                        cargo,
+                        cargos (
+                            nome
+                        )
+                    `)
+                    .eq('unidade', selectedClient.unit_id);
+
+                if (error) {
+                    console.error('Error fetching colabs:', error);
+                } else {
+                    setUnitColabs(data || []);
+                }
+                setLoadingColabsList(false);
+            };
+            fetchColabs();
+        }
+    }, [selectedClient, activeTab]);
+
+    const [docFilters, setDocFilters] = useState({
+        type: 'all', // 'esocial', 'pgr', 'pcmso', 'dir', 'procuracao'
+        status: 'all', // 'all', 'expired', 'expiring'
+        startDate: '',
+        endDate: '',
+        period: ''
+    });
+
+    // --- Mapped Logic from Request ---
+
+    // Fetch Function (Adapted to use Supabase directly)
+    const fetchClientsWithUnits = async () => {
+        const { data, error } = await supabase
+            .from('unidades')
+            .select(`
+                id,
+                nome_unidade,
+                empresaid,
+                clientes:empresaid (
+                     id,
+                     razao_social,
+                     nome_fantasia,
+                     cnpj,
+                     email,
+                     telefone,
+                     endereco,
+                     status,
+                     clientefrequente
+                ),
+                clientes_documentacoes ( * ),
+                colaboradores (count)
+            `)
+            .order('nome_unidade', { ascending: true });
+
+        if (error) {
+            console.error(error);
+            return [];
+        }
+
+        // Map to flat structure for the UI
+        return data.map((u: any) => ({
+            card_id: u.id, // Using Unit ID as Card ID
+            unit_id: u.id,
+            client_id: u.clientes?.id,
+            is_unit_card: true,
+
+            // Display Info
+            nome_fantasia: u.clientes?.nome_fantasia || u.nome_unidade,
+            razao_social: u.clientes?.razao_social,
+            cnpj: u.clientes?.cnpj,
+            email: u.clientes?.email,
+            endereco: u.clientes?.endereco,
+            telefone: u.clientes?.telefone,
+            clientefrequente: u.clientes?.clientefrequente,
+
+            // Docs (Attach the doc object directly)
+            docs: u.clientes_documentacoes?.[0] || null, // Assuming 1-to-1 for simplicity in this view
+
+            // Stats (Mock or Real)
+            colabs_count: u.colaboradores?.[0]?.count || 0
+        }));
+    };
+
+    // Fetch Docs for Modal (Already have them in list, but maybe refetch for details?)
+    // For now, we use the ones we fetched if attached, or fetch specifically if deep linking.
+    // The snippet implies a separate fetch. Let's rely on cached data for list, but we can refetch.
 
     useEffect(() => {
-        fetchClientes();
+        const loadClients = async () => {
+            setLoading(true);
+            const data = await fetchClientsWithUnits();
+            setClients(data);
+            setLoading(false);
+        };
+        loadClients();
     }, []);
 
-    // Mark notifications as read when viewing docs for a specific unit
-    useEffect(() => {
-        if (selectedClient && activeTab === 'docs' && selectedUnidadeId) {
-            const unitNotifications = notifications.filter(n =>
-                n.clientId === selectedClient.clientes.id &&
-                n.unityId === selectedUnidadeId
-            );
-
-            unitNotifications.forEach(n => {
-                markAsRead(n.id);
-            });
-        }
-    }, [selectedClient, activeTab, selectedUnidadeId, notifications, markAsRead]);
-
-
-
+    // Set Selected Client Logic
     useEffect(() => {
         if (selectedClient) {
-            fetchColaboradores(selectedClient.clientes?.id || selectedClient.empresaid); // Use client ID
-            if (activeTab === 'docs') {
-                fetchUnidades(selectedClient.clientes?.id || selectedClient.empresaid);
-            }
-            setSelectedColaborador(null); // Reset drill-down when opening a new client
-            setIsEditing(false); // Reset edit mode
-            setIsCreating(false);
-            setEditForm({}); // Reset form
-            setColabSearchTerm(''); // Reset colab search
-            setColabSortOrder('asc'); // Reset colab sort
+            setFormData(selectedClient);
+            setHasChanges(false);
+            setClientDocs(selectedClient.docs); // Use embedded docs
         }
     }, [selectedClient]);
 
-    // Fetch units when tab changes to docs or client changes
+    // Click Outside Listener
     useEffect(() => {
-        if (selectedClient && activeTab === 'docs') {
-            fetchUnidades(selectedClient.clientes.id);
-        }
-    }, [activeTab, selectedClient]);
+        const handleClickOutside = (event: MouseEvent) => {
+            if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
+                setShowFilters(false);
+            }
+            if (docFilterRef.current && !docFilterRef.current.contains(event.target as Node)) {
+                setShowDocFilters(false);
+            }
+        };
 
-    // Fetch docs when unit is selected
-    useEffect(() => {
-        if (selectedUnidadeId) {
-            fetchDocumentacao(selectedUnidadeId);
+        const handleEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setShowFilters(false);
+                setShowDocFilters(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('keydown', handleEscape);
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleEscape);
+        };
+    }, []);
+
+    const handleInputChange = (field: string, value: any) => {
+        setFormData((prev: any) => ({ ...prev, [field]: value }));
+        setHasChanges(true);
+    };
+
+    const handleSave = async () => {
+        // Optimistic Update / Save to Supabase
+        console.log('Saving...', formData);
+
+        const { card_id, unit_id, client_id, is_unit_card, docs, colabs_count, ...updateData } = formData;
+
+        // Example Update
+        const { error } = await supabase
+            .from('clientes')
+            .update(updateData)
+            .eq('id', selectedClient.client_id);
+
+        if (error) {
+            console.error('Error updating client:', error);
+            alert('Erro ao salvar!');
+            return;
+        }
+
+        // Update local state to reflect changes immediately
+        setClients(prev => prev.map(c =>
+            c.card_id === selectedClient.card_id
+                ? { ...c, ...formData }
+                : c
+        ));
+
+        setHasChanges(false);
+        alert('Salvo com sucesso!');
+    };
+
+    const toggleSelectionMode = () => {
+        setIsSelectionMode(!isSelectionMode);
+        setSelectedIds(new Set()); // Clear selection when toggling
+    };
+
+    const toggleFilters = () => {
+        setShowFilters(!showFilters);
+        setShowDocFilters(false);
+    };
+
+    const toggleDocFilters = () => {
+        setShowDocFilters(!showDocFilters);
+        setShowFilters(false);
+    };
+
+    const handleCardClick = (client: any) => {
+        if (isSelectionMode) {
+            const newSelected = new Set(selectedIds);
+            if (newSelected.has(client.card_id)) {
+                newSelected.delete(client.card_id);
+            } else {
+                newSelected.add(client.card_id);
+            }
+            setSelectedIds(newSelected);
         } else {
-            setDocForm({});
-        }
-    }, [selectedUnidadeId]);
-
-    const fetchUnidades = async (clienteId: string) => {
-        try {
-            const { data, error } = await supabase
-                .from('unidades')
-                .select('*')
-                .eq('empresaid', clienteId);
-
-            if (error) throw error;
-            setUnidades(data || []);
-
-            // Auto-select first unit if available and none selected
-            if (data && data.length > 0 && !selectedUnidadeId) {
-                setSelectedUnidadeId(data[0].id);
-            }
-        } catch (error) {
-            console.error('Erro ao buscar unidades:', error);
+            setSelectedClient(client);
         }
     };
 
-    const fetchDocumentacao = async (unidadeId: number) => {
-        setLoadingDocs(true);
-        try {
-            const { data, error } = await supabase
-                .from('clientes_documentacoes')
-                .select('*')
-                .eq('unidade_id', unidadeId)
-                .maybeSingle();
-
-            if (error) throw error;
-
-            if (data) {
-                setDocForm(data);
-            } else {
-                setDocForm({
-                    unidade_id: unidadeId,
-                    razao_social: selectedClient?.clientes.razao_social || '',
-                    cpf_cnpj: selectedClient?.clientes.cnpj || '',
-                    esocial: false
-                });
-            }
-        } catch (error) {
-            console.error('Erro ao buscar documentação:', error);
-        } finally {
-            setLoadingDocs(false);
-        }
-    };
-
-    const handleSaveDocumentacao = async () => {
-        if (!selectedUnidadeId || !docForm.razao_social || !docForm.cpf_cnpj) {
-            alert('Por favor, preencha Razão Social e CPF/CNPJ.');
-            return;
-        }
-        setSavingDocs(true);
-        try {
-            const payload = {
-                ...docForm,
-                unidade_id: selectedUnidadeId,
-                updated_at: new Date()
-            };
-
-            const { data, error } = await supabase
-                .from('clientes_documentacoes')
-                .upsert(payload)
-                .select()
-                .single();
-
-            if (error) throw error;
-            setDocForm(data);
-            alert('Documentação salva com sucesso!');
-        } catch (error) {
-            console.error('Erro ao salvar documentação:', error);
-            alert('Erro ao salvar.');
-        } finally {
-            setSavingDocs(false);
-        }
-    };
-
-    const fetchClientes = async () => {
-        setLoading(true);
-
-        // Cache Strategy: Stale-While-Revalidate (sort of) or Cache-First with TTL
-        const CACHE_KEY = 'clientes_cache';
-        const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-        try {
-            const cached = localStorage.getItem(CACHE_KEY);
-            if (cached) {
-                const { data, timestamp } = JSON.parse(cached);
-                if (Date.now() - timestamp < CACHE_TTL) {
-                    setClientes(data);
-                    setLoading(false);
-                    // Optional: Fetch in background to update cache (Stale-While-Revalidate)
-                    // For now, return early to save resources as requested
-                    return;
-                }
-            }
-
-            const { data, error } = await supabase
-                .from('unidades')
-                .select(`
-                    id,
-                    nome_unidade,
-                    empresaid,
-                    clientes:empresaid (
-                         id,
-                         razao_social,
-                         nome_fantasia,
-                         cnpj,
-                         email,
-                         telefone,
-                         endereco,
-                         status,
-                         clientefrequente
-                    ),
-                    clientes_documentacoes (
-                        vencimento_pgr,
-                        vencimento_pcmso,
-                        vigencia_dir_aep,
-                        esocial_procuracao
-                    )
-                `)
-                .order('nome_unidade', { ascending: true });
-
-            if (error) throw error;
-
-            setClientes(data || []);
-            localStorage.setItem(CACHE_KEY, JSON.stringify({
-                data: data || [],
-                timestamp: Date.now()
-            }));
-
-        } catch (error) {
-            console.error('Erro ao buscar clientes:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Deep Linking Effect
-    useEffect(() => {
-        const state = (location as any).state;
-        if (state?.openClientId && clientes.length > 0) {
-            // Adapted logic: find the first unit belonging to this client or similar
-            const targetUnit = clientes.find(c => c.empresaid === state.openClientId);
-            if (targetUnit) {
-                setSelectedClient(targetUnit);
-                if (state.openTab === 'docs') {
-                    setActiveTab('docs');
-                }
-                if (state.targetUnitId) {
-                    setSelectedUnidadeId(state.targetUnitId);
-                }
-            }
-        }
-    }, [location, clientes]);
-
-    const fetchColaboradores = async (clienteId: string) => {
-        setLoadingColab(true);
-        try {
-            // Fetch collaborators linked to units that are linked to this company (cliente)
-            const { data, error } = await supabase
-                .from('colaboradores')
-                .select(`
-                id, 
-                nome, 
-                cpf,
-                data_nascimento,
-                sexo,
-                setor,
-                cargos (nome),
-                unidades!inner (empresaid, nome_unidade)
-            `)
-                .eq('unidades.empresaid', clienteId);
-
-            if (error) throw error;
-            setColaboradores(data || []);
-        } catch (error) {
-            console.error('Erro ao buscar colaboradores:', error);
-            setColaboradores([]);
-        } finally {
-            setLoadingColab(false);
-        }
-    };
-
-    const handleClosePanel = () => {
-        setSelectedClient(null);
-        setSelectedColaborador(null);
-        setIsEditing(false);
-        setIsCreating(false);
-        setEditForm({});
-        setActiveTab('info'); // Reset tab
-        setDocForm({});
-        setSelectedUnidadeId(null);
-        setUnidades([]);
-    };
-
-    const handleCreateClick = () => {
-        setIsCreating(true);
-        setIsEditing(true);
-        setEditForm({ clientefrequente: false, status: 'Ativo' }); // Default values
-        setSelectedClient(null); // Ensure no client is selected
-    };
-
-    const handleEditClick = () => {
-        if (selectedClient) {
-            setEditForm(selectedClient.clientes);
-            setIsEditing(true);
-        }
-    };
-
-    const handleCancelEdit = () => {
-        setIsEditing(false);
-        setEditForm({});
-    };
-
-    const handleSaveClient = async () => {
-        if (!editForm) return;
-        setSaving(true);
-        try {
-            if (isCreating) {
-                // CREATE Logic
-                const { data, error } = await supabase
-                    .from('clientes')
-                    .insert(editForm)
-                    .select()
-                    .single();
-
-                if (error) throw error;
-
-                setClientes([...clientes, data]);
-                handleClosePanel(); // Close after create
-
-            } else {
-                // UPDATE Logic
-                if (!selectedClient) return;
-
-                // Remove relational properties that are not columns in 'clientes' table
-                const { ...payload } = editForm;
-
-                const { error } = await supabase
-                    .from('clientes')
-                    .update(payload)
-                    .eq('id', selectedClient.empresaid);
-
-                if (error) throw error;
-
-                // Update local state - this is tricky with the new structure.
-                // We update the client info inside the unit object
-                const updatedClientInfo = { ...selectedClient.clientes, ...editForm } as ClientInfo;
-                const updatedUnit = { ...selectedClient, clientes: updatedClientInfo };
-
-                setSelectedClient(updatedUnit);
-                setClientes(prev => prev.map(c => c.id === updatedUnit.id ? updatedUnit : c));
-                setIsEditing(false);
-                handleClosePanel(); // Close modal after save
-            }
-        } catch (error) {
-            console.error('Erro ao salvar cliente:', error);
-            alert('Erro ao salvar cliente. Verifique os dados.');
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    const toggleClientSelection = (id: number, e: React.MouseEvent) => {
-        e.stopPropagation(); // Prevent opening details
-        setSelectedClients(prev =>
-            prev.includes(id)
-                ? prev.filter(clientId => clientId !== id)
-                : [...prev, id]
-        );
-    };
-
-    const handleBulkDelete = async () => {
-        if (selectedClients.length === 0) return;
-
-        if (!window.confirm(`Tem certeza que deseja excluir ${selectedClients.length} cliente(s)? Esta ação não pode ser desfeita.`)) {
-            return;
-        }
-
-        setDeleting(true);
-        try {
-            // This bulk delete logic is now risky because we are listing UNITS but deleting CLIENTS?
-            // User asked to "fetch from units". It's ambiguous if they want to delete units or clients.
-            // For safety, I will disable bulk delete for now or adapt it to delete UNITS if that's what we are selecting.
-            // Since the ID is now Unit ID, we should delete from 'unidades'.
-
-            // const { error } = await supabase.from('unidades').delete().in('id', selectedClients);
-
-            // NOTE: Implementing deletion of UNIDADES for now as the selection is on items (Units).
+    const handleDeleteSelected = async () => {
+        if (window.confirm(`Tem certeza que deseja excluir ${selectedIds.size} clientes?`)) {
+            // Delete Logic
             const { error } = await supabase
                 .from('unidades')
                 .delete()
-                .in('id', selectedClients);
+                .in('id', Array.from(selectedIds));
 
-            if (error) throw error;
-
-            // Update local state
-            setClientes(prev => prev.filter(c => !selectedClients.includes(c.id)));
-            setSelectedClients([]); // Clear selection
-
-            // If the currently open client was deleted, close the panel
-            if (selectedClient && selectedClients.includes(selectedClient.id)) {
-                handleClosePanel();
+            if (!error) {
+                setClients(prev => prev.filter(c => !selectedIds.has(c.card_id)));
+                setIsSelectionMode(false);
+                setSelectedIds(new Set());
             }
-
-        } catch (error) {
-            console.error('Erro ao excluir clientes:', error);
-            alert('Erro ao excluir clientes. Verifique se existem registros vinculados.');
-        } finally {
-            setDeleting(false);
         }
     };
 
-    // Use useMemo to prevent re-filtering on every render unless deps change
-    const filteredClientes = React.useMemo(() => {
-        return clientes.filter(cliente => {
+    const getClientStats = (client: any) => {
+        return {
+            colabs: client.colabs_count || 0,
+            units: 1
+        };
+    };
+
+    const formatDate = (dateString?: string) => {
+        if (!dateString) return '-';
+        try {
+            const date = new Date(dateString);
+            return new Intl.DateTimeFormat('pt-BR').format(date);
+        } catch (e) {
+            return dateString;
+        }
+    };
+
+    const checkExpired = (docs: any) => {
+        if (!docs) return false;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const datesToCheck = [
+            docs.vencimento_pgr,
+            docs.vencimento_pcmso,
+            docs.vigencia_dir_aep
+        ];
+
+        return datesToCheck.some(dateStr => {
+            if (!dateStr) return false;
+            return new Date(dateStr) < today;
+        });
+    };
+
+    const filteredClients = clients
+        .filter(client => {
+            // Search Text
             const matchesSearch =
-                (cliente.clientes?.nome_fantasia?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-                (cliente.clientes?.razao_social?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-                (cliente.clientes?.cnpj || '').includes(searchTerm);
+                (client.nome_fantasia?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+                (client.razao_social?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+                (client.cnpj || '').includes(searchTerm);
 
-            const matchesType = typeFilter === 'Todos' ||
-                (typeFilter === 'Frequente' && cliente.clientes?.clientefrequente) ||
-                (typeFilter === 'Esporádico' && !cliente.clientes?.clientefrequente);
+            // Status Filter
+            const matchesStatus =
+                filters.status === 'all' ? true :
+                    filters.status === 'frequent' ? client.clientefrequente === true :
+                        filters.status === 'sporadic' ? client.clientefrequente === false : true;
 
-            // Document Filter Logic
-            let matchesDoc = true;
-            if (docFilter !== 'Todos') {
-                const today = new Date();
-                const thirtyDaysFromNow = new Date();
-                thirtyDaysFromNow.setDate(today.getDate() + 30);
+            // Colabs Filter
+            const stats = getClientStats(client);
+            const matchesColabs = filters.colabsOperator === 'lt'
+                ? stats.colabs < filters.minColabs
+                : stats.colabs >= filters.minColabs;
 
-                let hasExpiringDoc = false;
+            // Document Filter
+            let matchesDocFilter = true;
+            if (docFilters.type !== 'all' && client.docs) {
+                const docType = docFilters.type; // 'esocial', 'pgr', 'pcmso', 'dir', 'procuracao'
+                let dateField: any = null;
+                let isBoolean = false;
 
-                // cliente here is UnidadeData
-                // "cliente.unidades" doesn't exist anymore, we are AT the unit level
-                // We check the docs of THIS unit
-                cliente.clientes_documentacoes?.forEach(doc => {
-                    const check = (dateStr?: string) => {
-                        if (!dateStr) return false;
-                        const d = new Date(dateStr);
-                        return d >= today && d <= thirtyDaysFromNow;
-                    };
+                if (docType === 'pgr') dateField = 'vencimento_pgr';
+                else if (docType === 'pcmso') dateField = 'vencimento_pcmso';
+                else if (docType === 'dir') dateField = 'vigencia_dir_aep';
+                else if (docType === 'esocial') isBoolean = true;
+                else if (docType === 'procuracao') isBoolean = true; // mapped to docs.esocial_procuracao below
 
-                    if (docFilter === 'PGR' && check(doc.vencimento_pgr)) hasExpiringDoc = true;
-                    if (docFilter === 'PCMSO' && check(doc.vencimento_pcmso)) hasExpiringDoc = true;
-                    if (docFilter === 'DIR/AEP' && check(doc.vigencia_dir_aep)) hasExpiringDoc = true;
-                    if (docFilter === 'Procuracao' && check(doc.esocial_procuracao)) hasExpiringDoc = true;
-                });
-                matchesDoc = hasExpiringDoc;
+                if (dateField) {
+                    const docDateStr = client.docs[dateField];
+                    if (!docDateStr) {
+                        matchesDocFilter = false;
+                    } else {
+                        const docDate = new Date(docDateStr);
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+
+                        if (docFilters.status === 'expired') {
+                            matchesDocFilter = docDate < today;
+                        } else if (docFilters.status === 'expiring') {
+                            if (docFilters.startDate && docFilters.endDate) {
+                                const start = new Date(docFilters.startDate);
+                                const end = new Date(docFilters.endDate);
+                                end.setHours(23, 59, 59, 999);
+                                matchesDocFilter = docDate >= start && docDate <= end;
+                            } else {
+                                matchesDocFilter = true;
+                            }
+                        }
+                    }
+                } else if (isBoolean) {
+                    const val = docType === 'esocial' ? client.docs.esocial : client.docs.esocial_procuracao;
+                    if (docFilters.status === 'expired') {
+                        matchesDocFilter = !val; // Pendente / False
+                    }
+                }
+            } else if (docFilters.type !== 'all') {
+                matchesDocFilter = false;
             }
 
-            return matchesSearch && matchesType && matchesDoc;
+            // Quick Expired Filter
+            let matchesExpiredOnly = true;
+            if (showExpiredOnly) {
+                matchesExpiredOnly = checkExpired(client.docs);
+            }
+
+            return matchesSearch && matchesStatus && matchesColabs && matchesDocFilter && matchesExpiredOnly;
+        })
+        .sort((a, b) => {
+            if (filters.orderBy === 'name_asc') {
+                return (a.nome_fantasia || '').localeCompare(b.nome_fantasia || '');
+            } else {
+                return (b.nome_fantasia || '').localeCompare(a.nome_fantasia || '');
+            }
         });
-    }, [clientes, searchTerm, typeFilter, docFilter]);
+
+    const modalTabs = [
+        { id: 'details', label: 'Detalhes' },
+        { id: 'docs', label: 'Documentos' },
+        { id: 'colabs', label: 'Colaboradores' }
+    ];
+
     return (
-        <div className="relative h-full flex flex-col">
-            {/* Header & Filters */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+        <div className="h-full flex flex-col animate-in fade-in duration-500">
+            <header className="flex flex-col md:flex-row justify-between items-center gap-4 mb-8">
                 <div>
-                    <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Gestão de Clientes</h2>
-                    <p className="text-slate-500 text-sm mt-1">{filteredClientes.length} empresas encontradas</p>
+                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Clientes</h1>
+                    <p className="text-slate-500 text-sm mt-1">
+                        {filteredClients.length} {filteredClients.length === 1 ? 'empresa encontrada' : 'empresas encontradas'} (Total carregado: {clients.length})
+                    </p>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
-                    {/* Add Client Button */}
-                    <button
-                        onClick={handleCreateClick}
-                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-xl transition-all shadow-lg shadow-blue-500/20 active:scale-95"
-                    >
-                        <Plus size={18} />
-                        <span className="hidden sm:inline">Adicionar Cliente</span>
-                    </button>
-
-                    {/* Toggle Selection Mode Button */}
-                    <button
-                        onClick={() => {
-                            setIsSelectionMode(!isSelectionMode);
-                            if (isSelectionMode) setSelectedClients([]); // Clear selection when turning off
-                        }}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all border ${isSelectionMode
-                            ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold'
-                            : 'bg-white border-white/60 text-slate-600 hover:bg-white/80'
-                            }`}
-                        title={isSelectionMode ? "Cancelar Seleção" : "Selecionar Clientes"}
-                    >
-                        <ListChecks size={18} />
-                        <span className="hidden sm:inline">{isSelectionMode ? 'Cancelar Seleção' : 'Selecionar'}</span>
-                    </button>
-
-                    {selectedClients.length > 0 ? (
-                        <div className="flex items-center gap-3 animate-fadeIn bg-red-50 px-4 py-2 rounded-xl border border-red-100 ml-2">
-                            <span className="text-sm font-bold text-red-700">{selectedClients.length}</span>
-                            <button
-                                onClick={handleBulkDelete}
-                                disabled={deleting}
-                                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                <div className="flex items-center gap-3 w-full md:w-auto">
+                    {isSelectionMode ? (
+                        /* Selection Mode Toolbar */
+                        <div className="flex items-center gap-2 animate-in slide-in-from-right-4 duration-300">
+                            <Button
+                                variant="outline"
+                                onClick={toggleSelectionMode}
                             >
-                                <Trash2 size={14} />
-                                {deleting ? '...' : 'Excluir'}
-                            </button>
+                                <X size={18} />
+                                <span>Cancelar Seleção</span>
+                            </Button>
+
+                            {selectedIds.size > 0 && (
+                                <div className="flex items-center gap-2 animate-in zoom-in-95">
+                                    <span className="bg-slate-100 px-3 py-1.5 rounded-lg text-sm font-bold text-slate-600 border border-slate-200">{selectedIds.size}</span>
+                                    <Button
+                                        variant="danger"
+                                        onClick={handleDeleteSelected}
+                                    >
+                                        <Trash2 size={18} />
+                                        <span>Excluir</span>
+                                    </Button>
+                                </div>
+                            )}
                         </div>
                     ) : (
+                        /* Default Toolbar */
                         <>
-                            {/* Standard Filters (Search/Status) - Hide when in selection mode? Or keep? Keeping for now. */}
-                            <div className="relative group ml-2">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={18} />
-                                <input
+                            <div className="w-full md:w-72">
+                                <Input
+                                    icon={Search}
                                     type="text"
-                                    placeholder="Buscar..."
+                                    placeholder="Buscar clientes..."
                                     value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="pl-10 pr-4 py-2.5 bg-white/60 border border-white/60 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-sm w-32 sm:w-48 backdrop-blur-sm shadow-sm"
+                                    onChange={(e: any) => setSearchTerm(e.target.value)}
                                 />
                             </div>
 
-                            <select
-                                value={typeFilter}
-                                onChange={(e) => setTypeFilter(e.target.value)}
-                                className="px-4 py-2.5 bg-white/60 border border-white/60 rounded-xl text-sm font-medium text-slate-700 outline-none cursor-pointer hover:bg-white/80 transition-all backdrop-blur-sm shadow-sm"
-                            >
-                                <option value="Todos">Todos os Tipos</option>
-                                <option value="Frequente">Frequente</option>
-                                <option value="Esporádico">Esporádico</option>
-                            </select>
+                            <div className="flex items-center gap-2">
+                                <Button variant="outline" onClick={toggleSelectionMode} className="btn-icon-only" title="Seleção Múltipla">
+                                    <ListChecks size={18} />
+                                </Button>
 
-                            <select
-                                value={docFilter}
-                                onChange={(e) => setDocFilter(e.target.value)}
-                                className="px-4 py-2.5 bg-white/60 border border-white/60 rounded-xl text-sm font-medium text-slate-700 outline-none cursor-pointer hover:bg-white/80 transition-all backdrop-blur-sm shadow-sm"
-                            >
-                                <option value="Todos">Todos os Docs</option>
-                                <option value="PGR">PGR Vencendo</option>
-                                <option value="PCMSO">PCMSO Vencendo</option>
-                                <option value="DIR/AEP">DIR/AEP Vencendo</option>
-                                <option value="Procuracao">Procuração Vencendo</option>
-                            </select>
+                                <div className="relative" ref={docFilterRef}>
+                                    <Button
+                                        variant={showDocFilters ? 'warning' : 'outline'}
+                                        className="btn-icon-only relative group"
+                                        onClick={toggleDocFilters}
+                                        title="Filtro de Documentos"
+                                    >
+                                        <FileText size={18} />
+                                        <Filter size={10} className={`absolute bottom-1.5 right-1.5 stroke-[3] bg-white rounded-full p-[1px] ${showDocFilters ? 'text-amber-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
+                                    </Button>
+
+                                    {showDocFilters && (
+                                        <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-100 p-4 z-20 animate-in zoom-in-95 origin-top-right">
+                                            <div className="mb-4">
+                                                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Documento</label>
+                                                <select
+                                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/10"
+                                                    value={docFilters.type}
+                                                    onChange={(e) => setDocFilters({ ...docFilters, type: e.target.value })}
+                                                >
+                                                    <option value="all">Selecione...</option>
+                                                    <option value="esocial">eSocial</option>
+                                                    <option value="pgr">PGR</option>
+                                                    <option value="pcmso">PCMSO</option>
+                                                    <option value="dir">DIR/AEP</option>
+                                                    <option value="procuracao">Procuração eSocial</option>
+                                                </select>
+                                            </div>
+
+                                            {docFilters.type !== 'all' && (
+                                                <>
+                                                    <div className="mb-4">
+                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Condição</label>
+                                                        <select
+                                                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/10"
+                                                            value={docFilters.status}
+                                                            onChange={(e) => setDocFilters({ ...docFilters, status: e.target.value })}
+                                                        >
+                                                            <option value="all">Selecione...</option>
+                                                            <option value="expired">Vencido / Pendente</option>
+                                                            {(docFilters.type !== 'esocial' && docFilters.type !== 'procuracao') && (
+                                                                <option value="expiring">A Vencer</option>
+                                                            )}
+                                                        </select>
+                                                    </div>
+
+                                                    {docFilters.status === 'expiring' && (
+                                                        <div>
+                                                            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Período</label>
+                                                            <div className="grid gap-2">
+                                                                {[
+                                                                    { label: 'Próximos 30 dias', days: 30 },
+                                                                    { label: 'Próximos 15 dias', days: 15 },
+                                                                    { label: 'Próxima semana', days: 7 }
+                                                                ].map(preset => (
+                                                                    <button
+                                                                        key={preset.days}
+                                                                        className={`text-left px-3 py-2 rounded-lg text-sm border transition-all ${docFilters.period === preset.days.toString() ? 'bg-blue-50 border-blue-200 text-blue-600 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                                                                        onClick={() => {
+                                                                            const start = new Date();
+                                                                            const end = new Date();
+                                                                            end.setDate(end.getDate() + preset.days);
+                                                                            setDocFilters({
+                                                                                ...docFilters,
+                                                                                period: preset.days.toString(),
+                                                                                startDate: start.toISOString().split('T')[0],
+                                                                                endDate: end.toISOString().split('T')[0]
+                                                                            });
+                                                                        }}
+                                                                    >
+                                                                        📅 {preset.label}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="relative" ref={filterRef}>
+                                    <Button
+                                        variant={showFilters ? 'primary' : 'outline'}
+                                        className="btn-icon-only"
+                                        onClick={toggleFilters}
+                                        title="Filtros Gerais"
+                                    >
+                                        <Filter size={18} />
+                                    </Button>
+
+                                    {showFilters && (
+                                        <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-2xl shadow-xl border border-slate-100 p-4 z-20 animate-in zoom-in-95 origin-top-right">
+                                            <div className="mb-4">
+                                                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Ordenar por</label>
+                                                <select
+                                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/10"
+                                                    value={filters.orderBy}
+                                                    onChange={(e) => setFilters({ ...filters, orderBy: e.target.value })}
+                                                >
+                                                    <option value="name_asc">Nome (A-Z)</option>
+                                                    <option value="name_desc">Nome (Z-A)</option>
+                                                </select>
+                                            </div>
+
+                                            <div className="mb-4">
+                                                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Categoria</label>
+                                                <select
+                                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/10"
+                                                    value={filters.status}
+                                                    onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                                                >
+                                                    <option value="all">Todos</option>
+                                                    <option value="frequent">Frequente</option>
+                                                    <option value="sporadic">Esporádico</option>
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Colaboradores</label>
+
+                                                <div className="grid grid-cols-3 gap-2 mb-3">
+                                                    {[
+                                                        { label: '< 10', value: 9, operator: 'lt' },
+                                                        { label: '10+', value: 10, operator: 'gte' },
+                                                        { label: '50+', value: 50, operator: 'gte' },
+                                                        { label: '100+', value: 100, operator: 'gte' },
+                                                        { label: '500+', value: 500, operator: 'gte' },
+                                                    ].map((preset) => (
+                                                        <button
+                                                            key={preset.label}
+                                                            className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors ${filters.colabsOperator === preset.operator && filters.minColabs === preset.value
+                                                                ? 'bg-blue-50 border-blue-200 text-blue-600'
+                                                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                                                }`}
+                                                            onClick={() => {
+                                                                if (filters.colabsOperator === preset.operator && filters.minColabs === preset.value) {
+                                                                    setFilters({ ...filters, minColabs: 0, colabsOperator: 'gte' });
+                                                                } else {
+                                                                    setFilters({
+                                                                        ...filters,
+                                                                        minColabs: preset.value,
+                                                                        colabsOperator: preset.operator
+                                                                    });
+                                                                }
+                                                            }}
+                                                        >
+                                                            {preset.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+
+                                                <div className="relative">
+                                                    <input
+                                                        type="number"
+                                                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/10 disabled:opacity-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                        placeholder="Número específico..."
+                                                        value={filters.minColabs || ''}
+                                                        onChange={(e) => setFilters({
+                                                            ...filters,
+                                                            minColabs: Number(e.target.value),
+                                                            colabsOperator: 'gte' // Default to >= for manual input
+                                                        })}
+                                                    />
+                                                    <span className="absolute right-3 top-2 text-xs text-slate-400 pointer-events-none">
+                                                        Mínimo
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <Button
+                                    variant={showExpiredOnly ? 'warning' : 'outline'}
+                                    className="btn-icon-only"
+                                    onClick={() => setShowExpiredOnly(!showExpiredOnly)}
+                                    title="Mostrar apenas documentos vencidos"
+                                >
+                                    <AlertTriangle size={18} />
+                                </Button>
+                            </div>
+
+                            <Button className="ml-2 font-bold shadow-blue-500/25">
+                                <Plus size={18} />
+                                <span>Novo Cliente</span>
+                            </Button>
                         </>
                     )}
                 </div>
-            </div>
+            </header>
 
-            {/* Grid List */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 pb-20">
-                {loading ? (
-                    Array.from({ length: 6 }).map((_, i) => (
-                        <div key={i} className="h-40 bg-white/40 rounded-3xl animate-pulse border border-white/50"></div>
-                    ))
-                ) : (
-                    filteredClientes.map((cliente) => {
-                        const isSelected = selectedClients.includes(cliente.id);
-
-                        // Expiration Check Logic
-                        const today = new Date();
-                        const thirtyDaysFromNow = new Date();
-                        thirtyDaysFromNow.setDate(today.getDate() + 30);
-
-                        const expiringDocs: { label: string; date: string }[] = [];
-
-
-
-                        // Flattened logic
-                        cliente.clientes_documentacoes?.forEach(doc => {
-                            const checkDate = (dateStr: string | undefined, label: string) => {
-                                if (!dateStr) return;
-                                const date = new Date(dateStr);
-                                if (date >= today && date <= thirtyDaysFromNow) {
-                                    expiringDocs.push({ label, date: format(date, 'dd/MM/yyyy') });
-                                }
-                            };
-
-                            checkDate(doc.vencimento_pgr, 'PGR');
-                            checkDate(doc.vencimento_pcmso, 'PCMSO');
-                            checkDate(doc.vigencia_dir_aep, 'DIR/AEP');
-                            checkDate(doc.esocial_procuracao, 'Procuração eSocial');
-                        });
+            {loading ? (
+                <div className="flex justify-center items-center h-48">
+                    <p className="text-slate-400 font-medium animate-pulse">Carregando clientes...</p>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 pb-20">
+                    {filteredClients.map((client) => {
+                        const isFrequent = client.clientefrequente === true;
+                        const statusLabel = isFrequent ? 'FREQUENTE' : 'ESPORÁDICO';
+                        const stats = getClientStats(client);
+                        const isSelected = selectedIds.has(client.card_id);
+                        const hasExpired = checkExpired(client.docs);
 
                         return (
-                            <div
-                                key={cliente.id}
-                                className={`group bg-white/60 backdrop-blur-xl p-6 rounded-3xl border shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden
-                  ${isSelected ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-white/60 hover:shadow-blue-500/5'}
-                `}
+                            <Card
+                                key={client.card_id}
+                                className={`relative group transition-all duration-300 border-2 ${isSelected ? 'border-blue-500 bg-blue-50/30' : 'border-transparent hover:border-blue-200'}`}
+                                onClick={() => handleCardClick(client)}
                             >
-                                {/* Selection Checkbox - Only visible in Selection Mode */}
-                                {isSelectionMode && (
-                                    <div
-                                        className="absolute top-4 right-4 z-20 cursor-pointer animate-fadeIn"
-                                        onClick={(e) => toggleClientSelection(cliente.id, e)}
-                                    >
-                                        {isSelected ? (
-                                            <CheckCircle2 className="text-blue-500 fill-blue-50" size={24} />
+                                <div className="flex items-start justify-between mb-4">
+                                    <div className={`p-3 rounded-2xl transition-colors ${isSelected ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500 group-hover:bg-blue-50 group-hover:text-blue-500'}`}>
+                                        {isSelectionMode && isSelected ? (
+                                            <CheckCircle size={24} className="text-blue-600" />
                                         ) : (
-                                            <Circle className="text-slate-300 hover:text-blue-400 transition-colors" size={24} />
+                                            <Building2 size={24} strokeWidth={1.5} />
                                         )}
                                     </div>
-                                )}
-
-                                {/* Card Content - Click opens details */}
-                                <div className="h-full flex flex-col justify-between cursor-pointer" onClick={() => setSelectedClient(cliente)}>
-
-                                    {/* Decorative gradient blob */}
-                                    <div className="absolute -right-10 -top-10 w-24 h-24 bg-blue-100/50 rounded-full blur-2xl group-hover:bg-blue-200/50 transition-colors"></div>
-
-                                    <div className="flex items-start justify-between relative z-10 pr-8">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-100 to-white border border-white shadow-sm flex items-center justify-center text-slate-400">
-                                                <Building size={20} />
-                                            </div>
-                                            <div>
-                                                <h3 className="font-bold text-slate-800 line-clamp-1">{cliente.clientes?.nome_fantasia || cliente.nome_unidade || 'Sem Nome'}</h3>
-                                                <p className="text-xs text-slate-500">{cliente.clientes?.cnpj || 'CNPJ não informado'}</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${cliente.clientes?.clientefrequente ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
-                                                {cliente.clientes?.clientefrequente ? 'Frequente' : 'Esporádico'}
-                                            </span>
-
-                                            {/* Expiration Warning Icon (Moved) */}
-                                            {expiringDocs.length > 0 && (
-                                                <div className="relative group/warning z-30">
-                                                    <div className={`${notifications.some(n => n.clientId === cliente.id) ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'} p-1.5 rounded-full shadow-sm cursor-help`}>
-                                                        <AlertTriangle size={16} />
-                                                    </div>
-
-                                                    {/* Hover Tooltip */}
-                                                    <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-xl border border-slate-100 p-4 opacity-0 invisible group-hover/warning:opacity-100 group-hover/warning:visible transition-all duration-300 z-50 transform translate-y-2 group-hover/warning:translate-y-0">
-                                                        <p className="text-xs font-bold text-slate-700 mb-2 border-b border-slate-100 pb-2">Documentação Vencendo:</p>
-                                                        <div className="space-y-1.5">
-                                                            {expiringDocs.map((doc, idx) => (
-                                                                <div key={idx} className="flex justify-between items-center text-xs">
-                                                                    <span className="text-slate-500 font-medium">{doc.label}</span>
-                                                                    <span className="text-amber-600 font-bold bg-amber-50 px-1.5 py-0.5 rounded">{doc.date}</span>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="mt-6 space-y-2 relative z-10">
-                                        {cliente.clientes?.email && (
-                                            <div className="flex items-center gap-2 text-xs text-slate-500">
-                                                <Mail size={14} className="text-slate-400" />
-                                                <span className="truncate">{cliente.clientes.email}</span>
-                                            </div>
-                                        )}
-                                        {cliente.clientes?.telefone && (
-                                            <div className="flex items-center gap-2 text-xs text-slate-500">
-                                                <Phone size={14} className="text-slate-400" />
-                                                <span>{cliente.clientes.telefone}</span>
-                                            </div>
-                                        )}
-                                        {cliente.clientes?.endereco && (
-                                            <div className="flex items-center gap-2 text-xs text-slate-500">
-                                                <MapPin size={14} className="text-slate-400" />
-                                                <span className="truncate">{cliente.clientes.endereco}</span>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="mt-4 pt-4 border-t border-white/50 flex justify-between items-center relative z-10">
-                                        <span className="text-xs font-semibold text-blue-600 group-hover:underline decoration-blue-200 underline-offset-4">Ver detalhes</span>
-                                        <div className="w-8 h-8 rounded-full bg-white/50 flex items-center justify-center text-slate-400 group-hover:text-blue-600 group-hover:bg-blue-50 transition-colors">
-                                            <ChevronRight size={16} />
-                                        </div>
+                                    <div className={`px-3 py-1 rounded-full text-[10px] font-bold tracking-wider ${isFrequent ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
+                                        {statusLabel}
                                     </div>
                                 </div>
-                            </div>
+
+                                <div>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <h3 className="font-bold text-slate-800 text-lg truncate" title={client.nome_fantasia}>
+                                            {client.nome_fantasia || 'Sem Nome'}
+                                        </h3>
+                                        {hasExpired && (
+                                            <div title="Documentos vencidos!" className="animate-pulse">
+                                                <AlertTriangle size={16} className="text-red-500" />
+                                            </div>
+                                        )}
+                                    </div>
+                                    <p className="text-slate-500 text-sm mb-4 font-mono">{client.cnpj || 'CNPJ não informado'}</p>
+
+                                    <div className="flex items-center gap-4 text-sm text-slate-400">
+                                        <div className="flex items-center gap-1.5">
+                                            <User size={14} />
+                                            <span>{stats.colabs} colaboradores</span>
+                                        </div>
+                                        {client.telefone && (
+                                            <div className="flex items-center gap-1.5" title="Telefone">
+                                                <Phone size={14} />
+                                                <span>{client.telefone}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="mt-4 pt-4 border-t border-slate-100 flex justify-end">
+                                    <span className={`text-sm font-medium flex items-center gap-1 ${isSelected ? 'text-blue-600' : 'text-slate-400 group-hover:text-blue-500'}`}>
+                                        {isSelectionMode ? (isSelected ? 'Selecionado' : 'Selecionar') : 'Ver detalhes'}
+                                        {!isSelectionMode && <ChevronRight size={16} />}
+                                    </span>
+                                </div>
+                            </Card>
                         );
-                    })
-                )}
-            </div>
+                    })}
+                </div>
+            )}
 
-            {/* Details Slide-Over (Modal) */}
-            {
-                (selectedClient || isCreating) && (
-                    <div className="fixed inset-0 z-50 flex justify-end">
-                        {/* Backdrop */}
-                        <div
-                            className="absolute inset-0 bg-slate-900/10 backdrop-blur-[2px] transition-opacity"
-                            onClick={handleClosePanel}
-                        ></div>
-
-                        {/* Panel */}
-                        <div className="relative w-full max-w-lg h-full bg-white/80 backdrop-blur-2xl shadow-2xl border-l border-white/60 transform transition-transform duration-300 ease-out animate-slideInRight flex flex-col">
-
-                            {/* Header */}
-                            <div className="p-6 border-b border-slate-200/50 flex justify-between items-center bg-white/40">
-                                <div className="flex items-center gap-3">
-                                    {selectedColaborador && (
-                                        <button
-                                            onClick={() => setSelectedColaborador(null)}
-                                            className="p-2 -ml-2 hover:bg-white rounded-full text-slate-500 hover:text-blue-600 transition-colors"
-                                        >
-                                            <ArrowLeft size={20} />
-                                        </button>
-                                    )}
-                                    <h2 className="text-xl font-bold text-slate-800">
-                                        {isCreating ? 'Novo Cliente' : (selectedColaborador ? 'Detalhes do Colaborador' : 'Detalhes do Cliente')}
-                                    </h2>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    {!isCreating && !selectedColaborador && !isEditing && (
-                                        <button
-                                            onClick={handleEditClick}
-                                            className="p-2 hover:bg-white rounded-full text-slate-500 hover:text-blue-600 transition-colors"
-                                            title="Editar"
-                                        >
-                                            <Edit2 size={18} />
-                                        </button>
-                                    )}
-                                    <button
-                                        onClick={handleClosePanel}
-                                        className="p-2 hover:bg-slate-200/50 rounded-full transition-colors text-slate-500"
-                                    >
-                                        <X size={20} />
-                                    </button>
-                                </div>
+            {/* Modal de Detalhes */}
+            <Modal
+                isOpen={!!selectedClient}
+                onClose={() => setSelectedClient(null)}
+                title={selectedClient?.nome_fantasia || 'Detalhes do Cliente'}
+                tabs={modalTabs}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+            >
+                {selectedClient && activeTab === 'details' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2 col-span-2 md:col-span-1">
+                                <label className="text-sm font-medium text-slate-600">Razão Social</label>
+                                <Input
+                                    value={formData.razao_social || ''}
+                                    onChange={(e: any) => handleInputChange('razao_social', e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2 col-span-2 md:col-span-1">
+                                <label className="text-sm font-medium text-slate-600">CNPJ</label>
+                                <Input
+                                    value={formData.cnpj || ''}
+                                    onChange={(e: any) => handleInputChange('cnpj', e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2 col-span-2 md:col-span-1">
+                                <label className="text-sm font-medium text-slate-600">Nome Fantasia</label>
+                                <Input
+                                    value={formData.nome_fantasia || ''}
+                                    onChange={(e: any) => handleInputChange('nome_fantasia', e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2 col-span-2 md:col-span-1">
+                                <label className="text-sm font-medium text-slate-600">Email</label>
+                                <Input
+                                    value={formData.email || ''}
+                                    onChange={(e: any) => handleInputChange('email', e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2 col-span-2 md:col-span-1">
+                                <label className="text-sm font-medium text-slate-600">Telefone</label>
+                                <Input
+                                    value={formData.telefone || ''}
+                                    onChange={(e: any) => handleInputChange('telefone', e.target.value)}
+                                />
                             </div>
 
-                            <div className="flex-1 overflow-y-auto p-6 space-y-8">
-
-                                {/* Tab Switcher (Only show if not creating new client and not in Dril-down) */}
-                                {!isCreating && !selectedColaborador && (
-                                    <div className="flex p-1 bg-slate-100 rounded-xl mb-6">
-                                        <button
-                                            onClick={() => setActiveTab('info')}
-                                            className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'info' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                                        >
-                                            Informações da Empresa
-                                        </button>
-                                        <button
-                                            onClick={() => setActiveTab('docs')}
-                                            className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'docs' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                                        >
-                                            Documentação
-                                        </button>
-                                    </div>
-                                )}
-
-                                {/* DOCUMENTATION TAB CONTENT */}
-                                {activeTab === 'docs' && !selectedColaborador && !isCreating ? (
-                                    <div className="space-y-6 animate-fadeIn">
-                                        {/* Unit Selector */}
-                                        <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-2">Unidade</label>
-                                            {unidades.length > 0 ? (
-                                                <select
-                                                    value={selectedUnidadeId || ''}
-                                                    onChange={(e) => setSelectedUnidadeId(Number(e.target.value))}
-                                                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20"
-                                                >
-                                                    {unidades.map(u => (
-                                                        <option key={u.id} value={u.id}>{u.nome_unidade}</option>
-                                                    ))}
-                                                </select>
-                                            ) : (
-                                                <div className="p-4 bg-yellow-50 text-yellow-700 rounded-xl text-sm border border-yellow-100">
-                                                    Nenhuma unidade vinculada encontrada para este cliente.
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {selectedUnidadeId && (
-                                            loadingDocs ? (
-                                                <div className="text-center py-8 text-slate-400">Carregando documentação...</div>
-                                            ) : (
-                                                <div className="space-y-4">
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                        <div className="space-y-1">
-                                                            <label className="text-xs font-bold text-slate-500 uppercase">Razão Social</label>
-                                                            <input
-                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500"
-                                                                value={docForm.razao_social || ''}
-                                                                onChange={e => setDocForm({ ...docForm, razao_social: e.target.value })}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <label className="text-xs font-bold text-slate-500 uppercase">CPF/CNPJ</label>
-                                                            <input
-                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500"
-                                                                value={docForm.cpf_cnpj || ''}
-                                                                onChange={e => setDocForm({ ...docForm, cpf_cnpj: e.target.value })}
-                                                            />
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                        <div className="space-y-1">
-                                                            <label className="text-xs font-bold text-slate-500 uppercase">Parceria Comercial</label>
-                                                            <input
-                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500"
-                                                                value={docForm.parceria_comercial || ''}
-                                                                onChange={e => setDocForm({ ...docForm, parceria_comercial: e.target.value })}
-                                                            />
-                                                        </div>
-                                                        <div className="flex items-center pt-6">
-                                                            <label className="flex items-center gap-2 cursor-pointer">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-                                                                    checked={docForm.esocial || false}
-                                                                    onChange={e => setDocForm({ ...docForm, esocial: e.target.checked })}
-                                                                />
-                                                                <span className="text-sm text-slate-700 font-medium">eSocial</span>
-                                                            </label>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="space-y-1">
-                                                        <label className="text-xs font-bold text-slate-500 uppercase">eSocial Procuração (Data)</label>
-                                                        <input
-                                                            type="date"
-                                                            className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500"
-                                                            value={docForm.esocial_procuracao ? new Date(docForm.esocial_procuracao).toISOString().split('T')[0] : ''}
-                                                            onChange={e => setDocForm({ ...docForm, esocial_procuracao: e.target.value })}
-                                                        />
-                                                    </div>
-
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                        <div className="space-y-1">
-                                                            <label className="text-xs font-bold text-slate-500 uppercase">Vencimento PGR</label>
-                                                            <input
-                                                                type="date"
-                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500"
-                                                                value={docForm.vencimento_pgr ? new Date(docForm.vencimento_pgr).toISOString().split('T')[0] : ''}
-                                                                onChange={e => setDocForm({ ...docForm, vencimento_pgr: e.target.value })}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <label className="text-xs font-bold text-slate-500 uppercase">Vencimento PCMSO</label>
-                                                            <input
-                                                                type="date"
-                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500"
-                                                                value={docForm.vencimento_pcmso ? new Date(docForm.vencimento_pcmso).toISOString().split('T')[0] : ''}
-                                                                onChange={e => setDocForm({ ...docForm, vencimento_pcmso: e.target.value })}
-                                                            />
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="space-y-1">
-                                                        <label className="text-xs font-bold text-slate-500 uppercase">Vigência DIR/AEP</label>
-                                                        <input
-                                                            type="date"
-                                                            className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500"
-                                                            value={docForm.vigencia_dir_aep ? new Date(docForm.vigencia_dir_aep).toISOString().split('T')[0] : ''}
-                                                            onChange={e => setDocForm({ ...docForm, vigencia_dir_aep: e.target.value })}
-                                                        />
-                                                    </div>
-
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                        <div className="space-y-1">
-                                                            <label className="text-xs font-bold text-slate-500 uppercase">Contato</label>
-                                                            <input
-                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500"
-                                                                value={docForm.contato || ''}
-                                                                onChange={e => setDocForm({ ...docForm, contato: e.target.value })}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <label className="text-xs font-bold text-slate-500 uppercase">Responsável</label>
-                                                            <input
-                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500"
-                                                                value={docForm.responsavel || ''}
-                                                                onChange={e => setDocForm({ ...docForm, responsavel: e.target.value })}
-                                                            />
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="space-y-1">
-                                                        <label className="text-xs font-bold text-slate-500 uppercase">Observação / Ação</label>
-                                                        <textarea
-                                                            className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 h-24 resize-none"
-                                                            value={docForm.observacao_acao || ''}
-                                                            onChange={e => setDocForm({ ...docForm, observacao_acao: e.target.value })}
-                                                        />
-                                                    </div>
-
-                                                    <button
-                                                        onClick={handleSaveDocumentacao}
-                                                        disabled={savingDocs}
-                                                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 mt-4"
-                                                    >
-                                                        {savingDocs ? 'Salvando...' : <><Save size={18} /> Salvar Documentação</>}
-                                                    </button>
-                                                </div>
-                                            )
-                                        )}
-                                    </div>
-                                ) : (
-                                    // EXISTING INFO CONTENT (Wrapped in a fragment or implicit container logic handled by ternary)
-                                    null
-                                )}
-
-                                {/* CONDITIONAL CONTENT: Either Client Details (Info Tab) OR Collaborator Details */}
-                                {activeTab === 'info' && (
-                                    selectedColaborador ? (
-                                        <div className="space-y-6 animate-fadeIn">
-                                            {/* Header Card */}
-                                            <div className="bg-gradient-to-br from-indigo-50 to-white p-8 rounded-3xl border border-white shadow-sm flex flex-col items-center text-center">
-                                                <div className="w-24 h-24 rounded-full bg-white shadow-md border-4 border-indigo-50 flex items-center justify-center text-indigo-400 mb-4">
-                                                    <User size={40} />
-                                                </div>
-                                                <h3 className="text-2xl font-bold text-slate-800">{selectedColaborador.nome}</h3>
-                                                <p className="text-indigo-500 font-medium mt-1">{selectedColaborador.cargos?.nome || 'Cargo não informado'}</p>
-                                                <span className="text-xs text-slate-400 mt-2 bg-white px-3 py-1 rounded-full border border-slate-100">
-                                                    {selectedColaborador.unidades?.nome_unidade}
-                                                </span>
-                                            </div>
-
-                                            {/* Info Grid */}
-                                            <div className="grid grid-cols-1 gap-4">
-                                                <div className="bg-white/50 p-4 rounded-2xl border border-white shadow-sm flex items-center gap-4">
-                                                    <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-500">
-                                                        <CreditCard size={20} />
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-xs text-slate-400 uppercase font-bold tracking-wider">CPF</p>
-                                                        <p className="text-slate-700 font-mono">{selectedColaborador.cpf || 'Não cadastrado'}</p>
-                                                    </div>
-                                                </div>
-
-                                                <div className="bg-white/50 p-4 rounded-2xl border border-white shadow-sm flex items-center gap-4">
-                                                    <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-500">
-                                                        <Calendar size={20} />
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-xs text-slate-400 uppercase font-bold tracking-wider">Data de Nascimento</p>
-                                                        <p className="text-slate-700">
-                                                            {selectedColaborador.data_nascimento
-                                                                ? format(new Date(selectedColaborador.data_nascimento), 'dd/MM/yyyy')
-                                                                : 'Não cadastrada'}
-                                                        </p>
-                                                    </div>
-                                                </div>
-
-                                                <div className="bg-white/50 p-4 rounded-2xl border border-white shadow-sm flex items-center gap-4">
-                                                    <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-500">
-                                                        <Users size={20} />
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-xs text-slate-400 uppercase font-bold tracking-wider">Sexo</p>
-                                                        <p className="text-slate-700 capitalize">{selectedColaborador.sexo || 'Não informado'}</p>
-                                                    </div>
-                                                </div>
-
-                                                <div className="bg-white/50 p-4 rounded-2xl border border-white shadow-sm flex items-center gap-4">
-                                                    <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-500">
-                                                        <Briefcase size={20} />
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-xs text-slate-400 uppercase font-bold tracking-wider">Setor</p>
-                                                        <p className="text-slate-700">{selectedColaborador.setor || 'Não informado'}</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        // Default View: Client Info + List of Collaborators
-                                        <>
-                                            <div className="bg-white/50 p-6 rounded-3xl border border-white shadow-sm">
-                                                <div className="flex items-start gap-4 mb-6">
-                                                    <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-500 shrink-0">
-                                                        <Building size={32} />
-                                                    </div>
-                                                    <div className="flex-1 w-full">
-                                                        {isEditing ? (
-                                                            <div className="space-y-3">
-                                                                <input
-                                                                    className="w-full text-lg font-bold text-slate-800 bg-white border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                                                    placeholder="Nome Fantasia"
-                                                                    value={editForm.nome_fantasia || ''}
-                                                                    onChange={e => setEditForm({ ...editForm, nome_fantasia: e.target.value })}
-                                                                />
-                                                                <input
-                                                                    className="w-full text-sm text-slate-500 bg-white border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                                                    placeholder="Razão Social"
-                                                                    value={editForm.razao_social || ''}
-                                                                    onChange={e => setEditForm({ ...editForm, razao_social: e.target.value })}
-                                                                />
-                                                                <select
-                                                                    className="w-full text-xs font-bold uppercase tracking-wide bg-white border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                                                    value={editForm.clientefrequente ? 'true' : 'false'}
-                                                                    onChange={e => setEditForm({ ...editForm, clientefrequente: e.target.value === 'true' })}
-                                                                >
-                                                                    <option value="false">Esporádico</option>
-                                                                    <option value="true">Frequente</option>
-                                                                </select>
-                                                            </div>
-                                                        ) : (
-                                                            <>
-                                                                <h3 className="text-lg font-bold text-slate-800">{selectedClient?.nome_fantasia}</h3>
-                                                                <p className="text-sm text-slate-500">{selectedClient?.razao_social}</p>
-                                                                <span className={`mt-2 inline-block px-2 py-0.5 rounded text-xs font-bold border ${selectedClient?.clientefrequente ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-slate-50 text-slate-500 border-slate-100'
-                                                                    }`}>
-                                                                    {selectedClient?.clientefrequente ? 'Frequente' : 'Esporádico'}
-                                                                </span>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                <div className="space-y-3">
-                                                    <div className="flex flex-col py-2 border-b border-dashed border-slate-200">
-                                                        <span className="text-sm text-slate-400 mb-1">CNPJ</span>
-                                                        {isEditing ? (
-                                                            <input
-                                                                className="w-full text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                                                value={editForm.cnpj || ''}
-                                                                onChange={e => setEditForm({ ...editForm, cnpj: e.target.value })}
-                                                            />
-                                                        ) : (
-                                                            <span className="text-sm font-medium text-slate-700">{selectedClient?.cnpj || '-'}</span>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex flex-col py-2 border-b border-dashed border-slate-200">
-                                                        <span className="text-sm text-slate-400 mb-1">Email</span>
-                                                        {isEditing ? (
-                                                            <input
-                                                                className="w-full text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                                                value={editForm.email || ''}
-                                                                onChange={e => setEditForm({ ...editForm, email: e.target.value })}
-                                                            />
-                                                        ) : (
-                                                            <span className="text-sm font-medium text-slate-700">{selectedClient?.email || '-'}</span>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex flex-col py-2 border-b border-dashed border-slate-200">
-                                                        <span className="text-sm text-slate-400 mb-1">Telefone</span>
-                                                        {isEditing ? (
-                                                            <input
-                                                                className="w-full text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                                                value={editForm.telefone || ''}
-                                                                onChange={e => setEditForm({ ...editForm, telefone: e.target.value })}
-                                                            />
-                                                        ) : (
-                                                            <span className="text-sm font-medium text-slate-700">{selectedClient?.telefone || '-'}</span>
-                                                        )}
-                                                    </div>
-                                                    <div className="pt-2">
-                                                        <span className="text-sm text-slate-400 block mb-1">Endereço</span>
-                                                        {isEditing ? (
-                                                            <textarea
-                                                                className="w-full text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none resize-none h-20"
-                                                                value={editForm.endereco || ''}
-                                                                onChange={e => setEditForm({ ...editForm, endereco: e.target.value })}
-                                                            />
-                                                        ) : (
-                                                            <span className="text-sm font-medium text-slate-700 block bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                                                {selectedClient?.endereco || 'Endereço não cadastrado'}
-                                                            </span>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Save/Cancel Actions */}
-                                                    {isEditing && (
-                                                        <div className="flex gap-3 pt-4">
-                                                            <button
-                                                                onClick={handleSaveClient}
-                                                                disabled={saving}
-                                                                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/20"
-                                                            >
-                                                                {saving ? 'Salvando...' : <><Save size={18} /> {isCreating ? 'Criar Cliente' : 'Salvar Alterações'}</>}
-                                                            </button>
-                                                            <button
-                                                                onClick={handleCancelEdit}
-                                                                disabled={saving}
-                                                                className="flex-1 bg-white hover:bg-slate-50 text-slate-700 font-medium py-2.5 rounded-xl border border-slate-200 transition-all"
-                                                            >
-                                                                Cancelar
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Collaborators List (Hide in Edit Mode? Or keep it? Keeping it for now but maybe disabled?) 
-                            Let's keep it visible but maybe unclickable if we wanted perfect modal behavior, 
-                            but for now just showing it is fine. 
-                        */}
-                                            {!isEditing && (
-                                                <div>
-                                                    <h3 className="text-md font-bold text-slate-800 mb-4 flex items-center gap-2">
-                                                        <User size={18} className="text-blue-500" />
-                                                        Colaboradores Vinculados
-                                                        <span className="bg-blue-100 text-blue-700 text-xs py-0.5 px-2 rounded-full ml-auto">
-                                                            {colaboradores.length}
-                                                        </span>
-                                                    </h3>
-
-                                                    {/* Search and Sort for Collaborators */}
-                                                    <div className="flex items-center gap-2 mb-4">
-                                                        <div className="relative flex-1">
-                                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                                                            <input
-                                                                type="text"
-                                                                placeholder="Buscar colaborador..."
-                                                                value={colabSearchTerm}
-                                                                onChange={(e) => setColabSearchTerm(e.target.value)}
-                                                                className="w-full pl-9 pr-4 py-2 bg-white/60 border border-white/60 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-700 placeholder:text-slate-400"
-                                                            />
-                                                        </div>
-                                                        <button
-                                                            onClick={() => setColabSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                                                            className="p-2 bg-white/60 border border-white/60 rounded-xl hover:bg-white transition-colors text-slate-500 hover:text-blue-600"
-                                                            title={colabSortOrder === 'asc' ? "Ordenar Z-A" : "Ordenar A-Z"}
-                                                        >
-                                                            {colabSortOrder === 'asc' ? <ArrowDownAZ size={18} /> : <ArrowUpAZ size={18} />}
-                                                        </button>
-                                                    </div>
-
-                                                    {loadingColab ? (
-                                                        <div className="text-center py-8 text-slate-400">Carregando colaboradores...</div>
-                                                    ) : colaboradores.length === 0 ? (
-                                                        <div className="bg-slate-50/50 rounded-2xl p-6 text-center border border-dashed border-slate-200">
-                                                            <p className="text-slate-500 text-sm">Nenhum colaborador encontrado para este cliente.</p>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="space-y-3">
-                                                            {colaboradores
-                                                                .filter(colab => colab.nome.toLowerCase().includes(colabSearchTerm.toLowerCase()))
-                                                                .sort((a, b) => {
-                                                                    return colabSortOrder === 'asc'
-                                                                        ? a.nome.localeCompare(b.nome)
-                                                                        : b.nome.localeCompare(a.nome);
-                                                                })
-                                                                .map(colab => (
-                                                                    <div
-                                                                        key={colab.id}
-                                                                        onClick={() => setSelectedColaborador(colab)}
-                                                                        className="bg-white/60 p-3 rounded-2xl border border-white/60 flex items-center gap-3 shadow-sm hover:shadow-md hover:bg-white hover:border-blue-200 cursor-pointer transition-all group"
-                                                                    >
-                                                                        <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-500 shrink-0 group-hover:bg-blue-500 group-hover:text-white transition-colors">
-                                                                            <User size={16} />
-                                                                        </div>
-                                                                        <div className="flex-1 min-w-0">
-                                                                            <p className="text-sm font-bold text-slate-800 truncate">{colab.nome}</p>
-                                                                            <div className="flex items-center gap-2 text-xs text-slate-500">
-                                                                                <span className="flex items-center gap-1 truncate">
-                                                                                    <Briefcase size={10} />
-                                                                                    {colab.cargos?.nome || 'Cargo n/a'}
-                                                                                </span>
-                                                                            </div>
-                                                                        </div>
-                                                                        <ChevronRight size={16} className="text-slate-300 group-hover:text-blue-500" />
-                                                                    </div>
-                                                                ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </>
-                                    )
-                                )}
+                            {/* Fields from clientes_documentacoes */}
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-600">Parceria Comercial</label>
+                                <Input
+                                    value={clientDocs?.parceria_comercial || ''}
+                                    readOnly
+                                    className="bg-slate-100 text-slate-500"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-600">Responsável</label>
+                                <Input
+                                    value={clientDocs?.responsavel || ''}
+                                    readOnly
+                                    className="bg-slate-100 text-slate-500"
+                                />
+                            </div>
+                            <div className="space-y-2 col-span-2">
+                                <label className="text-sm font-medium text-slate-600">Observação Ação</label>
+                                <Input
+                                    value={clientDocs?.observacao_acao || ''}
+                                    readOnly
+                                    className="bg-slate-100 text-slate-500"
+                                />
+                            </div>
+                            <div className="space-y-2 col-span-2">
+                                <label className="text-sm font-medium text-slate-600">Endereço</label>
+                                <Input
+                                    value={formData.endereco || ''}
+                                    onChange={(e: any) => handleInputChange('endereco', e.target.value)}
+                                />
                             </div>
                         </div>
+                        {hasChanges && (
+                            <div className="mt-8 flex justify-end animate-in fade-in">
+                                <Button onClick={handleSave}>
+                                    <CheckCircle size={18} />
+                                    <span>Salvar Alterações</span>
+                                </Button>
+                            </div>
+                        )}
                     </div>
                 )}
+
+                {selectedClient && activeTab === 'docs' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2">
+                        {clientDocs ? (
+                            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-medium">
+                                        <tr>
+                                            <th className="p-4">Documento</th>
+                                            <th className="p-4">Status/Vencimento</th>
+                                            <th className="p-4 w-10"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        <tr className="hover:bg-slate-50 transition-colors">
+                                            <td className="p-4"><div className="flex items-center gap-2 font-medium text-slate-700"><FileText size={16} className="text-blue-500" /> eSocial</div></td>
+                                            <td className="p-4">{clientDocs.esocial ? <Badge status="success" text="Enviado" /> : <Badge status="warning" text="Pendente" />}</td>
+                                            <td className="p-4"><Button variant="ghost" size="icon"><MoreVertical size={16} /></Button></td>
+                                        </tr>
+                                        <tr className="hover:bg-slate-50 transition-colors">
+                                            <td className="p-4"><div className="flex items-center gap-2 font-medium text-slate-700"><FileText size={16} className="text-blue-500" /> PGR</div></td>
+                                            <td className="p-4">{formatDate(clientDocs.vencimento_pgr)}</td>
+                                            <td className="p-4"><Button variant="ghost" size="icon"><MoreVertical size={16} /></Button></td>
+                                        </tr>
+                                        <tr className="hover:bg-slate-50 transition-colors">
+                                            <td className="p-4"><div className="flex items-center gap-2 font-medium text-slate-700"><FileText size={16} className="text-blue-500" /> PCMSO</div></td>
+                                            <td className="p-4">{formatDate(clientDocs.vencimento_pcmso)}</td>
+                                            <td className="p-4"><Button variant="ghost" size="icon"><MoreVertical size={16} /></Button></td>
+                                        </tr>
+                                        <tr className="hover:bg-slate-50 transition-colors">
+                                            <td className="p-4"><div className="flex items-center gap-2 font-medium text-slate-700"><FileText size={16} className="text-blue-500" /> DIR/AEP</div></td>
+                                            <td className="p-4">{formatDate(clientDocs.vigencia_dir_aep)}</td>
+                                            <td className="p-4"><Button variant="ghost" size="icon"><MoreVertical size={16} /></Button></td>
+                                        </tr>
+                                        <tr className="hover:bg-slate-50 transition-colors">
+                                            <td className="p-4"><div className="flex items-center gap-2 font-medium text-slate-700"><FileText size={16} className="text-blue-500" /> Procuração eSocial</div></td>
+                                            <td className="p-4">{clientDocs.esocial_procuracao ? <Badge status="success" text="Ativa" /> : <Badge status="warning" text="Pendente" />}</td>
+                                            <td className="p-4"><Button variant="ghost" size="icon"><MoreVertical size={16} /></Button></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <div className="p-8 text-center text-slate-400">
+                                <FileText size={48} className="mx-auto mb-4 opacity-20" />
+                                <p>Nenhuma documentação encontrada para esta unidade.</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {selectedClient && activeTab === 'colabs' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2">
+                        {loadingColabsList ? (
+                            <div className="flex justify-center p-8">
+                                <p className="text-slate-400 animate-pulse">Carregando colaboradores...</p>
+                            </div>
+                        ) : unitColabs.length > 0 ? (
+                            <div className="space-y-3">
+                                {unitColabs.map((colab: any) => (
+                                    <div key={colab.id} className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-100 hover:border-blue-200 transition-colors">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-sm">
+                                                {colab.nome ? colab.nome.substring(0, 2).toUpperCase() : '??'}
+                                            </div>
+                                            <div>
+                                                <div className="font-bold text-slate-800">{colab.nome || 'Sem Nome'}</div>
+                                                <div className="text-xs text-slate-500">
+                                                    {colab.cargos?.nome || 'Cargo não definido'} • {colab.setor || 'Setor não definido'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <Badge status="success" text="Ativo" />
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="p-8 text-center text-slate-400">
+                                <User size={48} className="mx-auto mb-4 opacity-20" />
+                                <p>Nenhum colaborador encontrado para esta unidade.</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </Modal>
         </div>
     );
 };
