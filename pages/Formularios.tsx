@@ -714,7 +714,7 @@ export const Formularios: React.FC = () => {
                         </Button>
                         <div>
                             <h1 className="text-2xl font-bold text-slate-800">Relatório: {analyticsForm.title}</h1>
-                            <p className="text-slate-500 text-sm mt-1">{getTotalResponses()} respostas totais até agora</p>
+
                         </div>
                     </div>
 
@@ -918,10 +918,21 @@ export const Formularios: React.FC = () => {
                                             {q.question_type === 'select' && <ChevronDown size={18} />}
                                             {q.question_type === 'rating' && <Star size={18} />}
                                         </div>
-                                        <input
-                                            className="bg-transparent font-medium text-slate-700 w-full focus:outline-none border-b border-transparent focus:border-blue-300 px-1"
+                                        <textarea
+                                            className="bg-transparent font-medium text-slate-700 w-full focus:outline-none border-b border-transparent focus:border-blue-300 px-1 pr-28 resize-none overflow-hidden"
                                             value={q.label}
-                                            onChange={(e) => updateQuestion(idx, 'label', e.target.value)}
+                                            onChange={(e) => {
+                                                updateQuestion(idx, 'label', e.target.value);
+                                                e.target.style.height = 'auto';
+                                                e.target.style.height = e.target.scrollHeight + 'px';
+                                            }}
+                                            ref={(el) => {
+                                                if (el) {
+                                                    el.style.height = 'auto';
+                                                    el.style.height = el.scrollHeight + 'px';
+                                                }
+                                            }}
+                                            rows={1}
                                             placeholder="Digite a pergunta..."
                                         />
                                     </div>
