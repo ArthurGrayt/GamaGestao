@@ -64,6 +64,18 @@ export interface Form {
   slug: string;
   active: boolean;
   created_at: string;
+  // Associations
+  empresa?: string; // UI-only, not in DB
+  unidade_id?: number; // ID
+  setor?: number;   // ID
+  qtd_respostas?: number;
+}
+
+export interface HSEDimension {
+  id: number;
+  name: string;
+  description?: string;
+  weight?: number; // Optional weighting
 }
 
 export interface FormQuestion {
@@ -81,14 +93,29 @@ export interface FormQuestion {
   min_value?: number;
   max_value?: number;
   temp_id?: string; // For stable keys in frontend
+  hse_dimension_id?: number;
+  hse_question_number?: number;
+}
+
+export interface Collaborator {
+  id?: string;
+  nome: string;
+  cpf: string;
+  cargo: number; // ID
+  setorid: number; // ID
+  unidade: number; // ID
+  sexo: string;
+  data_nascimento?: string;
+  avulso?: boolean;
 }
 
 export interface FormAnswer {
   id: number;
   form_id: number;
   question_id: number;
-  responder_name?: string;
-  responder_identifier?: string;
+  respondedor?: string; // UUID/ID for Collaborator
+  unidade_colaborador?: number; // ID
+  cargo?: number; // ID
   answer_text?: string;
   answer_number?: number;
   created_at: string;

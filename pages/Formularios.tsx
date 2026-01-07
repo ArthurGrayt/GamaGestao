@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabase';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import {
     Plus, Search, FileText, BarChart2, Link as LinkIcon,
     MoreVertical, Edit2, Trash2, X, Check, Copy, ExternalLink,
     ChevronUp, ChevronDown, List, Type, MessageSquare, Star,
-    User, Calendar, Clock, ArrowLeft, ChevronRight, Split, Layout, Minimize2, AlignJustify, GripVertical
+    User, Users, Calendar, Clock, ArrowLeft, ChevronRight, Split, Layout, Minimize2, AlignJustify, GripVertical,
+    Building2, MapPin
 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { Form, FormQuestion, FormAnswer, QuestionType } from '../types';
@@ -87,6 +88,84 @@ const ReviewItem = React.memo(({ label, value }: { label: string, value: string 
         <span className="font-medium text-slate-800">{value}</span>
     </div>
 ));
+
+// Searchable Select Component
+const SearchableSelect = ({ options, value, onChange, placeholder, disabled, icon: Icon }: any) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const wrapperRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        function handleClickOutside(event: any) {
+            if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+                setIsOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [wrapperRef]);
+
+    const filteredOptions = options.filter((opt: any) =>
+        String(opt.label || '').toLowerCase().includes(search.toLowerCase())
+    );
+
+    const selectedLabel = options.find((opt: any) => opt.value === value)?.label || '';
+
+    return (
+        <div className="relative" ref={wrapperRef}>
+            {Icon && <Icon size={16} className="absolute left-3 top-3 text-slate-400 pointer-events-none z-10" />}
+            <div
+                className={`w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 cursor-pointer flex justify-between items-center ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                onClick={() => !disabled && setIsOpen(!isOpen)}
+            >
+                <span className={selectedLabel ? 'text-slate-800' : 'text-slate-400 truncate'}>
+                    {selectedLabel || placeholder}
+                </span>
+                <ChevronDown size={14} className="text-slate-400" />
+            </div>
+
+            {isOpen && !disabled && (
+                <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 max-h-60 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-100">
+                    <div className="p-2 border-b border-slate-100 sticky top-0 bg-white">
+                        <div className="relative">
+                            <Search size={14} className="absolute left-2 top-2.5 text-slate-400" />
+                            <input
+                                autoFocus
+                                type="text"
+                                className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                                placeholder="Buscar..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                        </div>
+                    </div>
+                    <div className="overflow-y-auto flex-1">
+                        {filteredOptions.length > 0 ? (
+                            filteredOptions.map((opt: any) => (
+                                <div
+                                    key={opt.value}
+                                    className={`px-4 py-2 text-sm cursor-pointer hover:bg-blue-50 hover:text-blue-600 transition-colors ${opt.value === value ? 'bg-blue-50 text-blue-600 font-medium' : 'text-slate-600'}`}
+                                    onClick={() => {
+                                        onChange(opt.value);
+                                        setIsOpen(false);
+                                        setSearch('');
+                                    }}
+                                >
+                                    {opt.label}
+                                </div>
+                            ))
+                        ) : (
+                            <div className="px-4 py-3 text-sm text-slate-400 text-center">
+                                Nenhum resultado
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
 
 const QuestionEditorItem = React.memo(({
     q,
@@ -348,10 +427,73 @@ export const Formularios: React.FC = () => {
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [editingForm, setEditingForm] = useState<Partial<Form> & { questions?: Partial<FormQuestion>[] } | null>(null);
     const [deletedQuestionIds, setDeletedQuestionIds] = useState<number[]>([]);
+    const [isPsicosocial, setIsPsicosocial] = useState(false);
 
     useEffect(() => {
         fetchForms();
+
+        // Fetch Dictionary Data
+        const fetchDictionaries = async () => {
+            const { data: clientsData } = await supabase.from('clientes').select('id, nome_fantasia, razao_social').order('nome_fantasia');
+            if (clientsData) setCompanies(clientsData);
+
+            const { data: sectorsData } = await supabase.from('setor').select('id, nome').order('nome');
+            if (sectorsData) setSectors(sectorsData);
+        };
+        fetchDictionaries();
     }, []);
+
+    // Association Logic: Fetch Units and Count Colabs when Company Changes
+    useEffect(() => {
+        const loadCompanyData = async () => {
+            // Debug log
+            console.log('Loading company data for:', editingForm?.empresa);
+
+            if (!editingForm?.empresa) {
+                setUnits([]);
+                setColabsCount(0);
+                return;
+            }
+
+            // 1. Fetch Units
+            const { data: unitsData, error: unitError } = await supabase
+                .from('unidades')
+                .select('id, nome_unidade')
+                .eq('empresaid', editingForm.empresa) // Ensure the column name in 'unidades' table is exactly 'empresaid'
+                .order('nome_unidade');
+
+            if (unitError) console.error('Error fetching units:', unitError);
+            if (unitsData) {
+                console.log('Units loaded:', unitsData);
+                setUnits(unitsData);
+            }
+
+            // 2. Count Collaborators for this Company
+            // Get all unit IDs first (from the just fetched data or via query)
+            if (unitsData && unitsData.length > 0) {
+                const unitIds = unitsData.map(u => u.id);
+                const { count, error } = await supabase
+                    .from('colaboradores')
+                    .select('*', { count: 'exact', head: true })
+                    .in('unidade', unitIds);
+
+                const total = count || 0;
+                setColabsCount(total);
+                setRequireSector(total > 20);
+            } else {
+                setColabsCount(0);
+                setRequireSector(false);
+            }
+        };
+
+        if (editingForm) {
+            loadCompanyData();
+        }
+    }, [editingForm?.empresa]);
+
+    // Update Title/Slug when Sector Changes (if required)
+    // "ao selecionar um setor ele deve constar no link do formulario e no nome dele"
+    // We should implement this in the onChange handler to avoid infinite loops, not useEffect.
 
     const fetchForms = async () => {
         setLoading(true);
@@ -375,6 +517,7 @@ export const Formularios: React.FC = () => {
             questions: []
         });
         setDeletedQuestionIds([]);
+        setIsPsicosocial(false);
         setIsEditorOpen(true);
     };
 
@@ -392,11 +535,24 @@ export const Formularios: React.FC = () => {
             temp_id: `q_${q.id || 'new'}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
         }));
 
+        // If editing an existing form, we need to fetch the company ID from the unit
+        let empresaId = form.empresa;
+        if (!empresaId && form.unidade_id) {
+            const { data: unitData } = await supabase
+                .from('unidades')
+                .select('empresaid')
+                .eq('id', form.unidade_id)
+                .single();
+            if (unitData) empresaId = unitData.empresaid;
+        }
+
         setEditingForm({
             ...form,
+            empresa: empresaId,
             questions: questionsWithTempId
         });
         setDeletedQuestionIds([]);
+        setIsPsicosocial(!!form.hse_id);
         setIsEditorOpen(true);
     };
 
@@ -413,23 +569,112 @@ export const Formularios: React.FC = () => {
         }
     };
 
+
+    // Feature: Duplicate Form
+    const handleDuplicateForm = async (form: Form) => {
+        if (!confirm(`Deseja duplicar o formulário "${form.title}"?`)) return;
+
+        try {
+            const user = (await supabase.auth.getUser()).data.user;
+
+            // 1. Create Form Copy
+            const newSlug = `${form.slug}-copy-${Date.now()}`;
+            const { data: newForm, error: formError } = await supabase
+                .from('forms')
+                .insert({
+                    title: `${form.title} (Cópia)`,
+                    description: form.description,
+                    slug: newSlug,
+                    active: false, // Default to inactive
+                    // No empresa column in forms
+                    unidade_id: form.unidade_id,
+                    setor: form.setor
+                })
+                .select()
+                .single();
+
+            if (formError) throw formError;
+
+            // 2. Fetch Original Questions
+            const { data: originalQuestions, error: qError } = await supabase
+                .from('form_questions')
+                .select('*')
+                .eq('form_id', form.id)
+                .order('question_order', { ascending: true });
+
+            if (qError) throw qError;
+
+            // 3. Insert Questions for New Form
+            if (originalQuestions && originalQuestions.length > 0) {
+                const newQuestionsData = originalQuestions.map(q => {
+                    const { id, form_id, created_at, ...rest } = q;
+                    return {
+                        ...rest,
+                        form_id: newForm.id
+                    };
+                });
+
+                const { error: qsInsertError } = await supabase
+                    .from('form_questions')
+                    .insert(newQuestionsData);
+
+                if (qsInsertError) throw qsInsertError;
+            }
+
+            alert('Formulário duplicado com sucesso!');
+            fetchForms();
+        } catch (error) {
+            console.error('Error duplicating form:', error);
+            alert('Erro ao duplicar formulário');
+        }
+    };
+
+
     const handleSaveForm = async () => {
         if (!editingForm?.title || !editingForm?.slug) {
             alert('Título e Slug são obrigatórios');
             return;
         }
 
-        const user = (await supabase.auth.getUser()).data.user;
+        if (requireSector && !editingForm.setor) {
+            alert('A empresa selecionada possui mais de 20 colaboradores. Por favor, selecione um setor.');
+            return;
+        }
 
         // 1. Save Form (Insert or Update)
         let formId = editingForm.id;
 
-        const formData = {
+        const formData: Partial<Form> = {
             title: editingForm.title,
             description: editingForm.description,
             slug: editingForm.slug,
             active: editingForm.active,
+            // empresa: Not saved to DB
+            unidade_id: editingForm.unidade_id,
+            setor: editingForm.setor,
+            hse_id: editingForm.hse_id
         };
+
+        // Handle HSE Report Creation if Psicosocial is checked
+        if (isPsicosocial && !formData.hse_id) {
+            try {
+                const { data: hseData, error: hseError } = await supabase
+                    .from('form_hse_reports')
+                    .insert({ status: 'aberto' }) // defaults will handle the rest
+                    .select()
+                    .single();
+
+                if (hseError) throw hseError;
+                if (hseData) formData.hse_id = hseData.id;
+            } catch (err) {
+                console.error("Error creating HSE report:", err);
+                alert("Erro ao criar relatório Psicosocial. O formulário será salvo sem ele.");
+            }
+        } else if (!isPsicosocial && formData.hse_id) {
+            // Optional: Remove HSE link if unchecked? 
+            // For now, we just keep it or set null if desired. user didn't specify.
+            // Leaving as is to avoid data loss.
+        }
 
         if (formId) {
             // Update
@@ -547,6 +792,13 @@ export const Formularios: React.FC = () => {
     const [analyticsTab, setAnalyticsTab] = useState<'overview' | 'individual'>('overview');
     const [selectedRespondent, setSelectedRespondent] = useState<string | null>(null); // Groups by responder_identifier + timestamp key
     // isCompactMode state removed - enforced to true by default props passing
+
+    // Association State
+    const [companies, setCompanies] = useState<any[]>([]); // Clientes
+    const [units, setUnits] = useState<any[]>([]); // Unidades
+    const [sectors, setSectors] = useState<any[]>([]); // Setores
+    const [colabsCount, setColabsCount] = useState<number>(0);
+    const [requireSector, setRequireSector] = useState(false);
 
     const handleViewStats = async (form: Form) => {
         setAnalyticsForm(form);
@@ -1112,6 +1364,13 @@ export const Formularios: React.FC = () => {
                                 <div className="flex gap-2">
                                     <Badge status={form.active} />
                                     <button
+                                        onClick={() => handleDuplicateForm(form)}
+                                        className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                        title="Duplicar"
+                                    >
+                                        <Copy size={16} />
+                                    </button>
+                                    <button
                                         onClick={() => handleEdit(form)}
                                         className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                         title="Editar"
@@ -1195,14 +1454,104 @@ export const Formularios: React.FC = () => {
                                 placeholder="pesquisa-satisfacao"
                             />
                         </div>
-                        <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Descrição</label>
-                            <textarea
-                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10"
-                                rows={3}
-                                value={editingForm?.description || ''}
-                                onChange={(e) => setEditingForm(prev => ({ ...prev!, description: e.target.value }))}
+
+                        <div className="md:col-span-2 bg-purple-50 p-4 rounded-xl border border-purple-100 flex items-center gap-3">
+                            <input
+                                type="checkbox"
+                                id="is_psicosocial"
+                                className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500"
+                                checked={isPsicosocial}
+                                onChange={(e) => setIsPsicosocial(e.target.checked)}
                             />
+                            <div className="flex-1">
+                                <label htmlFor="is_psicosocial" className="font-bold text-purple-900 block cursor-pointer">
+                                    Psicosocial
+                                </label>
+                                <p className="text-xs text-purple-700">
+                                    Habilitar relatório HSE (Health & Safety Executive) para este formulário.
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Associations */}
+                        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 border-y border-slate-100 py-4 my-2">
+                            {/* Company */}
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Empresa</label>
+                                <SearchableSelect
+                                    icon={Building2}
+                                    placeholder="Selecione uma empresa..."
+                                    options={companies.map(c => ({ value: c.id, label: c.nome_fantasia || c.razao_social }))}
+                                    value={editingForm?.empresa}
+                                    onChange={(val: any) => setEditingForm(prev => ({ ...prev!, empresa: val, unidade_id: undefined, setor: undefined }))}
+                                />
+                            </div>
+
+                            {/* Unit */}
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Unidade</label>
+                                <SearchableSelect
+                                    icon={MapPin}
+                                    placeholder="Selecione uma unidade..."
+                                    options={units.map(u => ({ value: u.id, label: u.nome_unidade }))}
+                                    value={editingForm?.unidade_id}
+                                    onChange={(val: any) => setEditingForm(prev => ({ ...prev!, unidade_id: Number(val) }))}
+                                    disabled={!editingForm?.empresa}
+                                />
+                            </div>
+
+                            {/* Colabs Indicator */}
+                            {editingForm?.empresa && (
+                                <div className="flex items-center gap-2 text-sm text-slate-500">
+                                    <Users size={16} />
+                                    <span>Total Colaboradores: <b>{colabsCount}</b></span>
+                                    {colabsCount > 20 && <span className="text-amber-600 text-xs font-bold bg-amber-50 px-2 py-0.5 rounded ml-2">Setor Obrigatório</span>}
+                                </div>
+                            )}
+
+                            {/* Sector (Conditional) */}
+                            {requireSector && (
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Setor <span className="text-red-500">*</span></label>
+                                    <select
+                                        className="w-full px-4 py-2.5 bg-amber-50/50 border border-amber-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                                        value={editingForm?.setor || ''}
+                                        onChange={(e) => {
+                                            const sectorId = Number(e.target.value);
+                                            const sector = sectors.find(s => s.id === sectorId);
+
+                                            setEditingForm(prev => {
+                                                if (!prev) return null;
+                                                let newTitle = prev.title;
+                                                let newSlug = prev.slug;
+
+                                                // Append sector to title/slug
+                                                if (sector) {
+                                                    if (!newTitle.includes(sector.nome)) newTitle += ` - ${sector.nome}`;
+                                                    const sectorSlug = sector.nome.toLowerCase().replace(/\s+/g, '-');
+                                                    if (!newSlug.includes(sectorSlug)) newSlug += `-${sectorSlug}`;
+                                                }
+
+                                                return { ...prev, setor: sectorId, title: newTitle, slug: newSlug };
+                                            });
+                                        }}
+                                    >
+                                        <option value="">Selecione um setor...</option>
+                                        {sectors.map(s => (
+                                            <option key={s.id} value={s.id}>{s.nome}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                            <div className="md:col-span-2">
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Descrição</label>
+                                <textarea
+                                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10"
+                                    rows={3}
+                                    value={editingForm?.description || ''}
+                                    onChange={(e) => setEditingForm(prev => ({ ...prev!, description: e.target.value }))}
+                                />
+                            </div>
                         </div>
                         <div className="flex items-center gap-2">
                             <input

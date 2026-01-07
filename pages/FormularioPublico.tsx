@@ -2,8 +2,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../services/supabase';
-import { Form, FormQuestion } from '../types';
-import { CheckCircle, Check, AlertCircle, ChevronRight, Send, Star, User, Hash, ChevronDown } from 'lucide-react';
+import { Form, FormQuestion, Collaborator } from '../types';
+import { CheckCircle, Check, AlertCircle, ChevronRight, Send, Star, User, Hash, ChevronDown, Building2, MapPin, Briefcase, Search, Plus } from 'lucide-react';
 
 const LoadingScreen = () => (
     <div className="fixed inset-0 bg-gray-50 z-50 flex items-center justify-center font-sans antialiased">
@@ -131,6 +131,89 @@ const CustomSelect = ({ options, value, onChange, placeholder = 'Selecione...' }
     );
 };
 
+// Searchable Select Component for Registration
+const SearchableSelect = ({ options, value, onChange, placeholder, disabled, icon: Icon, requireSearch, noResultsContent }: any) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const wrapperRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        function handleClickOutside(event: any) {
+            if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+                setIsOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [wrapperRef]);
+
+    const filteredOptions = options.filter((opt: any) =>
+        String(opt.label || '').toLowerCase().includes(search.toLowerCase())
+    );
+
+    const selectedLabel = options.find((opt: any) => opt.value === value)?.label || '';
+
+    return (
+        <div className="relative" ref={wrapperRef}>
+            {Icon && <Icon size={16} className="absolute left-3 top-3 text-slate-400 pointer-events-none z-10" />}
+            <div
+                className={`w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 cursor-pointer flex justify-between items-center ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                onClick={() => !disabled && setIsOpen(!isOpen)}
+            >
+                <span className={selectedLabel ? 'text-slate-800' : 'text-slate-400 truncate'}>
+                    {selectedLabel || placeholder}
+                </span>
+                <ChevronDown size={14} className="text-slate-400" />
+            </div>
+
+            {isOpen && !disabled && (
+                <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 max-h-60 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-100">
+                    <div className="p-2 border-b border-slate-100 sticky top-0 bg-white">
+                        <div className="relative">
+                            <Search size={14} className="absolute left-2 top-2.5 text-slate-400" />
+                            <input
+                                autoFocus
+                                type="text"
+                                className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                                placeholder="Buscar..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                        </div>
+                    </div>
+                    <div className="overflow-y-auto flex-1">
+                        {!search && requireSearch ? (
+                            <div className="px-4 py-8 text-sm text-slate-400 text-center flex flex-col items-center gap-2">
+                                <Search size={24} className="opacity-20" />
+                                Digite para buscar sua empresa
+                            </div>
+                        ) : filteredOptions.length > 0 ? (
+                            filteredOptions.map((opt: any) => (
+                                <div
+                                    key={opt.value}
+                                    className={`px-4 py-2 text-sm cursor-pointer hover:bg-blue-50 hover:text-blue-600 transition-colors ${opt.value === value ? 'bg-blue-50 text-blue-600 font-medium' : 'text-slate-600'}`}
+                                    onClick={() => {
+                                        onChange(opt.value);
+                                        setIsOpen(false);
+                                        setSearch('');
+                                    }}
+                                >
+                                    {opt.label}
+                                </div>
+                            ))
+                        ) : (
+                            <div className="px-4 py-3 text-sm text-slate-400 text-center">
+                                {noResultsContent || 'Nenhum resultado'}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 export const FormularioPublico: React.FC = () => {
     const { slug } = useParams<{ slug: string }>();
     const [form, setForm] = useState<Form | null>(null);
@@ -139,15 +222,15 @@ export const FormularioPublico: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [submitted, setSubmitted] = useState(false);
 
+    // Identity State
+    const [cpf, setCpf] = useState('');
+    const [checkingCpf, setCheckingCpf] = useState(false);
+    const [collaborator, setCollaborator] = useState<Collaborator | null>(null);
+    const [showRegisterModal, setShowRegisterModal] = useState(false);
+
     // Form State
     const [answers, setAnswers] = useState<Record<number, any>>({});
-    const [respondentName, setRespondentName] = useState('');
-    const [respondentCpf, setRespondentCpf] = useState('');
-    const [respondentEmail, setRespondentEmail] = useState('');
-
-    // Validation State
-    const [isIdentityValid, setIsIdentityValid] = useState(false);
-    const [step, setStep] = useState<'cover' | 'form'>('cover');
+    const [step, setStep] = useState<'cover' | 'cpf_check' | 'form'>('cover');
     const [currentSection, setCurrentSection] = useState(0);
 
     const sections = React.useMemo(() => {
@@ -161,10 +244,6 @@ export const FormularioPublico: React.FC = () => {
                 list[list.length - 1].questions.push(q);
             }
         });
-
-        // Filter out empty sections if they are not the first one (though user might want empty pages?)
-        // Let's keep them, maybe they just have text (if we had text-only items).
-        // Since we only have questions, empty sections are weird but valid.
         return list;
     }, [questions, form]);
 
@@ -173,59 +252,12 @@ export const FormularioPublico: React.FC = () => {
     }, [slug]);
 
     useEffect(() => {
-        if (form?.title) {
-            document.title = form.title;
-        }
+        if (form?.title) document.title = form.title;
     }, [form]);
-
-    useEffect(() => {
-        const isValidName = respondentName.trim().split(' ').length >= 2; // At least 2 names
-        const isValidCpf = validateCPF(respondentCpf);
-        // Only validate identity if we are at the step where identity is shown or submitted
-        // Identity is always shown at the top of the form view, so logic holds.
-        setIsIdentityValid(isValidName && isValidCpf);
-    }, [respondentName, respondentCpf]);
-
-    const validateCPF = (cpf: string) => {
-        cpf = cpf.replace(/[^\d]+/g, '');
-        if (cpf === '') return false;
-        // Elimina CPFs invalidos conhecidos
-        if (cpf.length !== 11 ||
-            cpf === "00000000000" ||
-            cpf === "11111111111" ||
-            cpf === "22222222222" ||
-            cpf === "33333333333" ||
-            cpf === "44444444444" ||
-            cpf === "55555555555" ||
-            cpf === "66666666666" ||
-            cpf === "77777777777" ||
-            cpf === "88888888888" ||
-            cpf === "99999999999")
-            return false;
-        // Valida 1o digito
-        let add = 0;
-        for (let i = 0; i < 9; i++)
-            add += parseInt(cpf.charAt(i)) * (10 - i);
-        let rev = 11 - (add % 11);
-        if (rev === 10 || rev === 11)
-            rev = 0;
-        if (rev !== parseInt(cpf.charAt(9)))
-            return false;
-        // Valida 2o digito
-        add = 0;
-        for (let i = 0; i < 10; i++)
-            add += parseInt(cpf.charAt(i)) * (11 - i);
-        rev = 11 - (add % 11);
-        if (rev === 10 || rev === 11)
-            rev = 0;
-        if (rev !== parseInt(cpf.charAt(10)))
-            return false;
-        return true;
-    };
 
     const fetchForm = async () => {
         setLoading(true);
-        const minWaitPromise = new Promise(resolve => setTimeout(resolve, 3000));
+        const minWaitPromise = new Promise(resolve => setTimeout(resolve, 2000));
 
         // 1. Get Form
         const { data: formData, error: formError } = await supabase
@@ -244,24 +276,94 @@ export const FormularioPublico: React.FC = () => {
         setForm(formData);
 
         // 2. Get Questions
-        const { data: questionData, error: qError } = await supabase
+        const { data: questionData } = await supabase
             .from('form_questions')
             .select('*')
             .eq('form_id', formData.id)
             .order('question_order', { ascending: true });
 
-        if (questionData) {
-            setQuestions(questionData);
-        }
+        if (questionData) setQuestions(questionData);
+
         await minWaitPromise;
         setLoading(false);
     };
 
+    const validateCPF = (cpf: string) => {
+        cpf = cpf.replace(/[^\d]+/g, '');
+        if (cpf === '') return false;
+        if (cpf.length !== 11 ||
+            /^(\d)\1{10}$/.test(cpf)) return false;
+
+        let add = 0;
+        for (let i = 0; i < 9; i++) add += parseInt(cpf.charAt(i)) * (10 - i);
+        let rev = 11 - (add % 11);
+        if (rev === 10 || rev === 11) rev = 0;
+        if (rev !== parseInt(cpf.charAt(9))) return false;
+
+        add = 0;
+        for (let i = 0; i < 10; i++) add += parseInt(cpf.charAt(i)) * (11 - i);
+        rev = 11 - (add % 11);
+        if (rev === 10 || rev === 11) rev = 0;
+        if (rev !== parseInt(cpf.charAt(10))) return false;
+
+        return true;
+    };
+
+    const handleCheckCPF = async () => {
+        if (!validateCPF(cpf)) {
+            if (!window.confirm("CPF parece inválido ou incompleto. Deseja continuar mesmo assim?")) {
+                return;
+            }
+        }
+
+        setCheckingCpf(true);
+        const cleanCpf = cpf.replace(/\D/g, '');
+        const formattedCpf = cleanCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+
+        // Check Colaboradores (try both clean and formatted, to be safe)
+        const { data: colabData, error } = await supabase
+            .from('colaboradores')
+            .select('*')
+            .or(`cpf.eq.${cleanCpf},cpf.eq.${formattedCpf}`)
+            .maybeSingle();
+
+        if (colabData) {
+            // Found! Get Company Name via Unit
+            let companyName = '';
+            if (colabData.unidade) {
+                const { data: unitData } = await supabase
+                    .from('unidades')
+                    .select('empresaid')
+                    .eq('id', colabData.unidade)
+                    .single();
+
+                if (unitData?.empresaid) {
+                    const { data: companyData } = await supabase
+                        .from('clientes')
+                        .select('nome_fantasia, razao_social')
+                        .eq('id', unitData.empresaid)
+                        .single();
+                    companyName = companyData?.nome_fantasia || companyData?.razao_social || '';
+                }
+            }
+
+            setCollaborator({ ...colabData, empresa_nome: companyName });
+            setStep('form');
+        } else {
+            // Not Found -> Open Registration
+            setShowRegisterModal(true);
+        }
+        setCheckingCpf(false);
+    };
+
+    const handleRegistrationSuccess = (newColab: Collaborator) => {
+        setCollaborator(newColab);
+        setShowRegisterModal(false);
+        setStep('form');
+    };
+
     const handleAnswerChange = (questionId: number, value: any) => {
-        setAnswers(prev => ({
-            ...prev,
-            [questionId]: value
-        }));
+        setAnswers(prev => ({ ...prev, [questionId]: value }));
     };
 
     const validate = (qs: FormQuestion[]) => {
@@ -279,15 +381,6 @@ export const FormularioPublico: React.FC = () => {
 
     const handleNext = () => {
         const currentQs = sections[currentSection].questions;
-
-        // Validate Identity on first section
-        if (currentSection === 0) {
-            if (!isIdentityValid) {
-                alert("Preencha seus dados de identificação corretamente antes de avançar.");
-                return;
-            }
-        }
-
         if (validate(currentQs)) {
             setCurrentSection(prev => prev + 1);
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -298,19 +391,14 @@ export const FormularioPublico: React.FC = () => {
         if (currentSection > 0) {
             setCurrentSection(prev => prev - 1);
             window.scrollTo({ top: 0, behavior: 'smooth' });
-        } else {
-            setStep('cover');
         }
+        // If section 0, do nothing or confirm exit?
     };
 
     const handleSubmit = async () => {
         const currentQs = sections[currentSection].questions;
-        if (!validate(currentQs)) return; // Validate last section
-        if (!form) return;
-        if (!isIdentityValid) {
-            alert("Preencha seus dados corretamente antes de enviar.");
-            return;
-        }
+        if (!validate(currentQs)) return;
+        if (!form || !collaborator) return;
 
         setLoading(true);
 
@@ -320,8 +408,9 @@ export const FormularioPublico: React.FC = () => {
             return {
                 form_id: form.id,
                 question_id: q.id,
-                responder_name: respondentName,
-                responder_identifier: `${respondentCpf} | ${respondentEmail}`,
+                respondedor: collaborator.id, // User ID/UUID
+                unidade_colaborador: collaborator.unidade, // Unit ID
+                cargo: collaborator.cargo, // Role ID
                 answer_text: (q.question_type !== 'rating') ? String(val) : null,
                 answer_number: (q.question_type === 'rating') ? Number(val) : null,
             };
@@ -336,16 +425,31 @@ export const FormularioPublico: React.FC = () => {
             alert('Erro ao enviar suas respostas. Tente novamente.');
             setLoading(false);
         } else {
+            // Increment Response Count
+            await supabase.rpc('increment_form_responses', { form_id: form.id })
+                .then(({ error }) => {
+                    if (error) {
+                        // If RPC fails (e.g. doesn't exist), try manual update as fallback (optimized for concurrency this is bad, but acceptable for MVP without migration access)
+                        // Better approach: just try update (forms typically have low concurrency in this specific context)
+                        console.warn("RPC increment failed, trying manual update", error);
+                        // However, since I cannot create the RPC myself via SQL tool here, I will stick to the safer Manual READ-WRITE approach for now or just a direct update if possible.
+                        // Ideally: UPDATE forms SET qtd_respostas = coalesce(qtd_respostas, 0) + 1 WHERE id = x
+                        // Supabase JS doesn't support atomic increment easily without RPC.
+                        // I will do a fetch-update for now to be safe, given I can't guarantee RPC existence.
+                    }
+                });
+
+            // Manual Increment Fallback (since we likely don't have the RPC created)
+            const { data: currentForm } = await supabase.from('forms').select('qtd_respostas').eq('id', form.id).single();
+            const currentCount = currentForm?.qtd_respostas || 0;
+            await supabase.from('forms').update({ qtd_respostas: currentCount + 1 }).eq('id', form.id);
+
             setSubmitted(true);
             setLoading(false);
         }
     };
 
-
-
-    if (loading && !submitted) {
-        return <LoadingScreen />;
-    }
+    if (loading && !submitted) return <LoadingScreen />;
 
     if (error) {
         return (
@@ -376,37 +480,36 @@ export const FormularioPublico: React.FC = () => {
         );
     }
 
-    // Identidade Visual Gama Gestão
     const FORM_WIDTH = "w-full max-w-[640px]";
     const ACCENT_BORDER = "border-t-[8px] border-t-[#35b6cf]";
-
     const currentQs = sections[currentSection] ? sections[currentSection].questions : [];
     const isLastSection = currentSection === sections.length - 1;
 
     return (
-        <div className={`bg-slate-50 flex flex-col items-center font-sans px-3 sm:px-0 ${step === 'cover' ? 'h-screen overflow-hidden justify-center' : 'min-h-screen pt-4 sm:pt-8 pb-10 justify-start'}`}>
+        <div className={`bg-slate-50 flex flex-col items-center font-sans px-3 sm:px-0 ${step !== 'form' ? 'h-screen overflow-hidden justify-center' : 'min-h-screen pt-4 sm:pt-8 pb-10 justify-start'}`}>
+
+            <RegistrationModal
+                isOpen={showRegisterModal}
+                onClose={() => setShowRegisterModal(false)}
+                cpf={cpf}
+                onSuccess={handleRegistrationSuccess}
+            />
+
             {/* STEP 0: COVER PAGE */}
             {step === 'cover' && (
                 <div className={`${FORM_WIDTH} h-full flex flex-col justify-center animate-in slide-in-from-bottom-4 duration-500`}>
-
-
                     <div className={`bg-white rounded-lg shadow-sm border border-slate-200 ${ACCENT_BORDER} p-5 sm:p-6 mb-3 flex flex-col max-h-[75vh]`}>
                         <h1 className="text-lg sm:text-2xl font-normal text-slate-900 mb-3 line-clamp-2">{form?.title}</h1>
                         <div className="overflow-y-auto pr-2 custom-scrollbar flex-1">
                             <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">{form?.description}</p>
                         </div>
-
                         <div className="pt-4 flex justify-between items-center border-t border-slate-100 mt-4 shrink-0">
-
-                            <div className="flex gap-3">
-
-                                <button
-                                    onClick={() => setStep('form')}
-                                    className="bg-[#35b6cf] text-white px-5 py-1.5 rounded-md font-medium text-sm hover:bg-[#2ca1b7] transition-colors shadow-sm ring-offset-2 focus:ring-2 focus:ring-[#35b6cf]"
-                                >
-                                    Começar
-                                </button>
-                            </div>
+                            <button
+                                onClick={() => setStep('cpf_check')}
+                                className="bg-[#35b6cf] text-white px-5 py-1.5 rounded-md font-medium text-sm hover:bg-[#2ca1b7] transition-colors shadow-sm w-full sm:w-auto"
+                            >
+                                Iniciar Formulário
+                            </button>
                         </div>
                     </div>
                     <div className="flex items-center justify-center gap-2 mt-4 opacity-70">
@@ -416,16 +519,83 @@ export const FormularioPublico: React.FC = () => {
                 </div>
             )}
 
+            {/* STEP 0.5: CPF CHECK */}
+            {step === 'cpf_check' && (
+                <div className={`${FORM_WIDTH} h-full flex flex-col justify-center animate-in slide-in-from-right-8 duration-500`}>
+                    <div className="bg-white rounded-lg shadow-lg p-8 max-w-sm mx-auto w-full">
+                        <div className="text-center mb-6">
+                            <div className="w-16 h-16 bg-blue-50 text-[#35b6cf] rounded-full flex items-center justify-center mx-auto mb-4">
+                                <User size={32} />
+                            </div>
+                            <h2 className="text-xl font-bold text-slate-800">Identificação</h2>
+                            <p className="text-sm text-slate-500 mt-2">Informe seu CPF para continuar</p>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-sm font-medium text-slate-700 mb-1 block">CPF</label>
+                                <div className="relative">
+                                    <Hash size={18} className="absolute left-3 top-3 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#35b6cf]/20 focus:border-[#35b6cf] outline-none transition-all"
+                                        placeholder="000.000.000-00"
+                                        maxLength={14}
+                                        value={cpf}
+                                        onChange={(e) => {
+                                            let v = e.target.value.replace(/\D/g, '');
+                                            if (v.length > 11) v = v.slice(0, 11);
+                                            v = v.replace(/(\d{3})(\d)/, '$1.$2');
+                                            v = v.replace(/(\d{3})(\d)/, '$1.$2');
+                                            v = v.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+                                            setCpf(v);
+                                        }}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleCheckCPF()}
+                                    />
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={handleCheckCPF}
+                                disabled={checkingCpf || cpf.length < 14}
+                                className="w-full bg-[#35b6cf] text-white py-2.5 rounded-lg font-bold hover:bg-[#2ca1b7] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            >
+                                {checkingCpf ? 'Verificando...' : 'Continuar'}
+                                {!checkingCpf && <ChevronRight size={18} />}
+                            </button>
+                            <button
+                                onClick={() => setStep('cover')}
+                                className="w-full text-sm text-slate-500 hover:text-slate-800 mt-2"
+                            >
+                                Voltar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* STEP 1: FORM */}
             {step === 'form' && (
                 <div className={`${FORM_WIDTH} mx-auto space-y-3 sm:space-y-4 animate-in slide-in-from-right-8 duration-500`}>
+
                     {/* Header Compacto */}
                     <div className={`bg-white rounded-lg shadow-sm border border-slate-200 ${ACCENT_BORDER} p-5 sm:p-6`}>
                         <h1 className="text-2xl font-normal text-slate-900">{form?.title}</h1>
-                        {currentSection > 0 && sections[currentSection].title && (
-                            <h2 className="text-lg font-medium text-[#35b6cf] mt-1">{sections[currentSection].title}</h2>
+                        {collaborator && (
+                            <div className="mt-4 p-3 bg-blue-50 rounded-lg flex items-center gap-3 text-sm text-blue-800">
+                                <div className="bg-blue-100 p-2 rounded-full">
+                                    <User size={16} />
+                                </div>
+                                <div>
+                                    <p className="font-bold">{collaborator.nome}</p>
+                                    <p className="opacity-80 text-xs">{collaborator.empresa_nome} (CPF: {collaborator.cpf})</p>
+                                </div>
+                            </div>
                         )}
-                        <div className="text-xs text-slate-500 mt-2 flex items-center justify-between">
+                        {currentSection > 0 && sections[currentSection].title && (
+                            <h2 className="text-lg font-medium text-[#35b6cf] mt-4">{sections[currentSection].title}</h2>
+                        )}
+                        <div className="text-xs text-slate-500 mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
                             <span className="flex items-center gap-1"><span className="text-red-500">*</span> Indica pergunta obrigatória</span>
                             {sections.length > 1 && (
                                 <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-400">Página {currentSection + 1} de {sections.length}</span>
@@ -433,60 +603,9 @@ export const FormularioPublico: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Identification (Mandatory) - SHOW ONLY ON FIRST SECTION */}
-                    {currentSection === 0 && (
-                        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 sm:p-6 animate-in fade-in duration-500">
-                            <h3 className="text-base font-normal text-slate-800 mb-6 flex items-center gap-2">
-                                Identificação
-                                {isIdentityValid ? <CheckCircle size={16} className="text-[#35b6cf]" /> : <span className="text-red-500 text-xs">* Obrigatório</span>}
-                            </h3>
-                            <div className="space-y-6">
-                                <div className="relative">
-                                    <label className="text-sm font-medium text-slate-700 mb-2 block">Nome Completo <span className="text-red-500">*</span></label>
-                                    <input
-                                        type="text"
-                                        placeholder="Sua resposta"
-                                        className={`w-full px-0 py-2 border-b focus:border-b-2 bg-transparent transition-all outline-none ${respondentName && respondentName.trim().split(' ').length < 2 ? 'border-red-300 focus:border-red-500' : 'border-slate-300 focus:border-[#35b6cf]'}`}
-                                        value={respondentName}
-                                        onChange={(e) => setRespondentName(e.target.value)}
-                                    />
-                                    {respondentName && respondentName.trim().split(' ').length < 2 && <p className="text-xs text-red-500 mt-1">Informe nome e sobrenome</p>}
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
-                                    <div>
-                                        <label className="text-sm font-medium text-slate-700 mb-2 block">CPF <span className="text-red-500">*</span></label>
-                                        <input
-                                            type="text"
-                                            placeholder="Sua resposta"
-                                            maxLength={14}
-                                            className={`w-full px-0 py-2 border-b focus:border-b-2 bg-transparent transition-all outline-none ${respondentCpf && !validateCPF(respondentCpf) ? 'border-red-300 focus:border-red-500' : 'border-slate-300 focus:border-blue-600'}`}
-                                            value={respondentCpf}
-                                            onChange={(e) => {
-                                                let v = e.target.value.replace(/\D/g, '');
-                                                if (v.length > 11) v = v.slice(0, 11);
-                                                setRespondentCpf(v);
-                                            }}
-                                        />
-                                        {respondentCpf && !validateCPF(respondentCpf) && <span className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle size={12} /> CPF inválido</span>}
-                                    </div>
-                                    <div>
-                                        <label className="text-sm font-medium text-slate-700 mb-2 block">Email</label>
-                                        <input
-                                            type="email"
-                                            placeholder="Sua resposta"
-                                            className="w-full px-0 py-2 border-b border-slate-300 focus:border-b-2 focus:border-blue-600 bg-transparent transition-all outline-none"
-                                            value={respondentEmail}
-                                            onChange={(e) => setRespondentEmail(e.target.value)}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
                     {/* Questions of Current Section */}
-                    <div className={`space-y-4 transition-all duration-500 ${currentSection === 0 && !isIdentityValid ? 'opacity-50 pointer-events-none blur-[2px] select-none' : 'opacity-100'}`}>
+                    {/* Identification block removed as it is handled before */}
+                    <div className="space-y-4">
                         {currentQs.map((q) => (
                             <div key={q.id} className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 sm:p-6 transition-all hover:shadow-md animate-in slide-in-from-right-4 duration-300">
                                 <label className="block text-base font-normal text-slate-900 mb-4">
@@ -571,28 +690,266 @@ export const FormularioPublico: React.FC = () => {
                         ))}
                     </div>
 
-                    {/* Submit Bar */}
                     <div className="flex justify-between items-center py-6">
                         <button
                             onClick={handleBack}
-                            className="text-slate-500 hover:text-slate-800 hover:bg-slate-100 px-4 py-2 rounded transition-colors font-medium text-sm"
+                            disabled={currentSection === 0}
+                            className="text-slate-500 hover:text-slate-800 hover:bg-slate-100 px-4 py-2 rounded transition-colors font-medium text-sm disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                             Voltar
                         </button>
 
                         <button
                             onClick={isLastSection ? handleSubmit : handleNext}
-                            disabled={currentSection === 0 && !isIdentityValid}
-                            className="bg-[#35b6cf] text-white px-6 py-2 rounded-md font-medium text-sm hover:bg-[#2ca1b7] transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ring-offset-2 focus:ring-2 focus:ring-[#35b6cf]"
+                            className="bg-[#35b6cf] text-white px-6 py-2 rounded-md font-medium text-sm hover:bg-[#2ca1b7] transition-colors shadow-sm ring-offset-2 focus:ring-2 focus:ring-[#35b6cf]"
                         >
                             {isLastSection ? 'Enviar' : 'Avançar'}
                         </button>
-                    </div>
-                    <div className="text-center text-xs text-slate-400 pb-8">
-                        Gama Center - 2025
                     </div>
                 </div>
             )}
         </div>
     );
 };
+
+// MODAL DE REGISTRO
+interface RegistrationModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    cpf: string;
+    onSuccess: (collaborator: Collaborator) => void;
+}
+
+const RegistrationModal = ({ isOpen, onClose, cpf, onSuccess }: RegistrationModalProps) => {
+    const [step, setStep] = useState(1);
+    const [loading, setLoading] = useState(false);
+
+    // Form Data
+    const [nome, setNome] = useState('');
+    const [dataNascimento, setDataNascimento] = useState('');
+    const [empresaId, setEmpresaId] = useState<string>('');
+    const [unidadeId, setUnidadeId] = useState<number | undefined>();
+    const [setorId, setSetorId] = useState<number | undefined>();
+    const [cargoId, setCargoId] = useState<number | undefined>();
+    const [sexo, setSexo] = useState('');
+
+    // Lists
+    const [companies, setCompanies] = useState<any[]>([]);
+    const [units, setUnits] = useState<any[]>([]);
+    const [sectores, setSectores] = useState<any[]>([]);
+    const [cargos, setCargos] = useState<any[]>([]);
+
+    useEffect(() => {
+        if (isOpen) {
+            fetchInitialData();
+            // Reset state
+            setStep(1);
+            setNome('');
+            setDataNascimento('');
+            setEmpresaId('');
+            setUnidadeId(undefined);
+            setSetorId(undefined);
+            setCargoId(undefined);
+            setSexo('');
+        }
+    }, [isOpen]);
+
+    // Load Units when Company changes
+    useEffect(() => {
+        if (empresaId) {
+            fetchUnits(empresaId);
+        } else {
+            setUnits([]);
+        }
+    }, [empresaId]);
+
+    const fetchInitialData = async () => {
+        const [resCompanies, resSectores, resCargos] = await Promise.all([
+            supabase.from('clientes').select('id, nome_fantasia, razao_social').order('nome_fantasia'),
+            supabase.from('setor').select('id, nome').order('nome'),
+            supabase.from('cargos').select('id, nome').order('nome')
+        ]);
+
+        if (resCompanies.data) setCompanies(resCompanies.data);
+        if (resSectores.data) setSectores(resSectores.data);
+        if (resCargos.data) setCargos(resCargos.data);
+    };
+
+    const fetchUnits = async (companyId: string) => {
+        const { data } = await supabase
+            .from('unidades')
+            .select('id, nome_unidade')
+            .eq('empresaid', companyId)
+            .order('nome_unidade');
+
+        if (data) setUnits(data);
+    };
+
+    const handleRegister = async () => {
+        if (!nome || !cpf || !empresaId || !unidadeId || !setorId || !cargoId || !sexo || !dataNascimento) {
+            alert("Preencha todos os campos obrigatórios");
+            return;
+        }
+
+        setLoading(true);
+
+        const newColab: Collaborator = {
+            nome,
+            cpf, // Clean CPF is passed prop
+            data_nascimento: dataNascimento,
+            unidade: unidadeId,
+            setorid: setorId,
+            cargo: cargoId,
+            sexo,
+            avulso: true
+        };
+
+        const { data, error } = await supabase
+            .from('colaboradores')
+            .insert(newColab)
+            .select()
+            .single();
+
+        if (error) {
+            console.error(error);
+            alert("Erro ao cadastrar. Tente novamente.");
+            setLoading(false);
+            return;
+        }
+
+        // Get company name for display
+        const company = companies.find(c => c.id === empresaId);
+        const savedColab = { ...newColab, id: data.id, empresa_nome: company?.nome_fantasia || company?.razao_social };
+
+        onSuccess(savedColab);
+        onClose();
+        setLoading(false);
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                    <h2 className="text-lg font-bold text-slate-800">Completar Cadastro</h2>
+                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+                        <span className="sr-only">Fechar</span>
+                        <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                    </button>
+                </div>
+
+                <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                    <div className="bg-blue-50 text-blue-800 p-3 rounded-lg text-sm mb-4">
+                        Não encontramos seu CPF na base. Por favor, complete seus dados para continuar.
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">CPF</label>
+                        <input type="text" value={cpf} disabled className="w-full px-4 py-2 bg-slate-100 border border-slate-200 rounded-lg text-slate-500" />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Nome Completo <span className="text-red-500">*</span></label>
+                            <input
+                                type="text"
+                                value={nome}
+                                onChange={e => setNome(e.target.value)}
+                                className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#35b6cf]/20 focus:border-[#35b6cf] outline-none"
+                                placeholder="Seu nome"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">D. Nascimento <span className="text-red-500">*</span></label>
+                            <input
+                                type="date"
+                                value={dataNascimento}
+                                onChange={e => setDataNascimento(e.target.value)}
+                                className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#35b6cf]/20 focus:border-[#35b6cf] outline-none"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Empresa <span className="text-red-500">*</span></label>
+                            <SearchableSelect
+                                placeholder="Buscar..."
+                                options={companies.map(c => ({ value: c.id, label: c.nome_fantasia || c.razao_social }))}
+                                value={empresaId}
+                                onChange={setEmpresaId}
+                                requireSearch={true}
+                                noResultsContent={
+                                    <div className="flex flex-col items-center justify-center py-4 px-2 text-center space-y-2">
+                                        <img src="/favicon.png" alt="Gama" className="w-8 h-8 opacity-80" />
+                                        <p className="text-xs text-slate-800 font-medium">Sua empresa não é cliente da Gama Center</p>
+                                    </div>
+                                }
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Unidade <span className="text-red-500">*</span></label>
+                            <SearchableSelect
+                                placeholder={empresaId ? "Selecione..." : "Escolha a empresa"}
+                                options={units.map(u => ({ value: u.id, label: u.nome_unidade }))}
+                                value={unidadeId}
+                                onChange={setUnidadeId}
+                                disabled={!empresaId}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Setor <span className="text-red-500">*</span></label>
+                            <SearchableSelect
+                                placeholder="Selecione..."
+                                options={sectores.map(s => ({ value: s.id, label: s.nome }))}
+                                value={setorId}
+                                onChange={setSetorId}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Cargo <span className="text-red-500">*</span></label>
+                            <SearchableSelect
+                                placeholder="Selecione..."
+                                options={cargos.map(c => ({ value: c.id, label: c.nome }))}
+                                value={cargoId}
+                                onChange={setCargoId}
+                            />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Sexo <span className="text-red-500">*</span></label>
+                        <select
+                            value={sexo}
+                            onChange={e => setSexo(e.target.value)}
+                            className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#35b6cf]/20 focus:border-[#35b6cf] outline-none"
+                        >
+                            <option value="">Selecione...</option>
+                            <option value="Masculino">Masculino</option>
+                            <option value="Feminino">Feminino</option>
+                            <option value="Outro">Outro</option>
+                        </select>
+                    </div>
+
+                </div>
+
+                <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3">
+                    <button onClick={onClose} className="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium">Cancelar</button>
+                    <button
+                        onClick={handleRegister}
+                        disabled={loading}
+                        className="bg-[#35b6cf] text-white px-6 py-2 rounded-lg font-medium hover:bg-[#2ca1b7] disabled:opacity-50 flex items-center gap-2"
+                    >
+                        {loading ? 'Salvando...' : 'Salvar e Continuar'}
+                        {!loading && <ChevronRight size={16} />}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
