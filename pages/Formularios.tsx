@@ -1784,7 +1784,7 @@ export const Formularios: React.FC = () => {
                 title={`Configuração HSE - ${currentHseForm?.title}`}
                 maxWidth="max-w-6xl"
             >
-                <div className="h-[80vh] flex flex-col">
+                <div className="h-[70vh] flex flex-col overflow-hidden">
                     {/* Toolbar */}
                     <div className="flex justify-between items-center mb-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
                         <div className="flex items-center gap-2">
@@ -1863,7 +1863,10 @@ export const Formularios: React.FC = () => {
                                 </div>
 
                                 {/* Right Column: Dimensions */}
-                                <div className="w-2/3 overflow-y-auto flex flex-col gap-4 pr-1">
+                                <div
+                                    className="w-2/3 h-full overflow-y-auto flex flex-col gap-4 pr-1 [&::-webkit-scrollbar]:hidden"
+                                    style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                                >
                                     {hseDimensions.length === 0 && (
                                         <div className="flex-1 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
                                             <p>Nenhuma dimensão criada.</p>
@@ -1875,7 +1878,7 @@ export const Formularios: React.FC = () => {
                                         const dimQuestions = hseQuestions.filter(q => q.hse_dimension_id === dim.id).sort((a, b) => (a.hse_question_number || 0) - (b.hse_question_number || 0));
 
                                         return (
-                                            <div key={dim.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm transition-all">
+                                            <div key={dim.id} className="bg-white border border-slate-200 rounded-xl shadow-sm transition-all">
                                                 {/* Dimension Header (Always Visible) */}
                                                 <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors"
                                                     onClick={() => toggleDimensionExpanded(dim.id)}>
@@ -1900,7 +1903,7 @@ export const Formularios: React.FC = () => {
 
                                                 {/* Expandable Body */}
                                                 {isExpanded && (
-                                                    <div className="p-4 bg-white animate-in slide-in-from-top-2 duration-200">
+                                                    <div className="p-4 bg-white animate-in slide-in-from-top-2 duration-200 max-h-[60vh] overflow-y-auto custom-scrollbar">
                                                         {/* Config Inputs */}
                                                         <div className="mb-4 pb-4 border-b border-slate-100 flex flex-col gap-4">
                                                             <div>
@@ -1945,7 +1948,7 @@ export const Formularios: React.FC = () => {
                                                                 <div
                                                                     {...provided.droppableProps}
                                                                     ref={provided.innerRef}
-                                                                    className={`p-4 min-h-[100px] max-h-[400px] overflow-y-auto rounded-xl border-2 border-dashed transition-colors ${snapshot.isDraggingOver ? 'bg-blue-50 border-blue-300' : 'bg-slate-50 border-slate-200'}`}
+                                                                    className={`p-4 min-h-[100px] rounded-xl border-2 border-dashed transition-colors ${snapshot.isDraggingOver ? 'bg-blue-50 border-blue-300' : 'bg-slate-50 border-slate-200'}`}
                                                                 >
                                                                     {dimQuestions.length === 0 && (
                                                                         <div className="text-center text-slate-400 text-sm py-8">
