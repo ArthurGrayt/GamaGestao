@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../services/supabase';
 import { Form, FormQuestion } from '../types';
@@ -62,12 +62,39 @@ const LoadingScreen = () => (
 
 const CustomSelect = ({ options, value, onChange, placeholder = 'Selecione...' }: any) => {
     const [isOpen, setIsOpen] = useState(false);
+    const triggerRef = useRef<HTMLDivElement>(null);
+    const [coords, setCoords] = useState({ top: 0, left: 0, width: 0 });
+
+    useEffect(() => {
+        const handleResize = () => setIsOpen(false);
+        const handleScroll = () => setIsOpen(false);
+
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('scroll', handleScroll, true);
+
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            window.removeEventListener('scroll', handleScroll, true);
+        };
+    }, []);
+
+    const handleOpen = () => {
+        if (triggerRef.current) {
+            const rect = triggerRef.current.getBoundingClientRect();
+            setCoords({
+                top: rect.bottom + 4,
+                left: rect.left,
+                width: rect.width
+            });
+            setIsOpen(!isOpen);
+        }
+    };
 
     return (
-        <div className="relative max-w-xs">
-            {isOpen && <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />}
+        <div className="relative max-w-xs" ref={triggerRef}>
+            {isOpen && <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />}
             <div
-                onClick={() => setIsOpen(!isOpen)}
+                onClick={handleOpen}
                 className={`w-full px-4 py-3 bg-white border rounded-md transition-all cursor-pointer flex justify-between items-center relative z-20 ${isOpen ? 'border-[#35b6cf] ring-2 ring-[#35b6cf]/10' : 'border-slate-200 hover:border-slate-300'}`}
             >
                 <span className={value ? 'text-slate-800' : 'text-slate-400'}>
@@ -77,7 +104,14 @@ const CustomSelect = ({ options, value, onChange, placeholder = 'Selecione...' }
             </div>
 
             {isOpen && (
-                <div className="absolute z-20 w-full mt-1 bg-white border border-slate-100 rounded-lg shadow-xl max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
+                <div
+                    className="fixed z-50 bg-white border border-slate-100 rounded-lg shadow-xl max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-200"
+                    style={{
+                        top: `${coords.top}px`,
+                        left: `${coords.left}px`,
+                        width: `${coords.width}px`
+                    }}
+                >
                     {options.map((opt: string) => (
                         <div
                             key={opt}
@@ -114,6 +148,25 @@ export const FormularioPublico: React.FC = () => {
     // Validation State
     const [isIdentityValid, setIsIdentityValid] = useState(false);
     const [step, setStep] = useState<'cover' | 'form'>('cover');
+    const [currentSection, setCurrentSection] = useState(0);
+
+    const sections = React.useMemo(() => {
+        if (!form) return [];
+        const list: { title?: string; questions: FormQuestion[] }[] = [{ title: 'Principal', questions: [] }];
+
+        questions.forEach(q => {
+            if (q.question_type === 'section_break') {
+                list.push({ title: q.label || 'Nova Seção', questions: [] });
+            } else {
+                list[list.length - 1].questions.push(q);
+            }
+        });
+
+        // Filter out empty sections if they are not the first one (though user might want empty pages?)
+        // Let's keep them, maybe they just have text (if we had text-only items).
+        // Since we only have questions, empty sections are weird but valid.
+        return list;
+    }, [questions, form]);
 
     useEffect(() => {
         if (slug) fetchForm();
@@ -128,6 +181,8 @@ export const FormularioPublico: React.FC = () => {
     useEffect(() => {
         const isValidName = respondentName.trim().split(' ').length >= 2; // At least 2 names
         const isValidCpf = validateCPF(respondentCpf);
+        // Only validate identity if we are at the step where identity is shown or submitted
+        // Identity is always shown at the top of the form view, so logic holds.
         setIsIdentityValid(isValidName && isValidCpf);
     }, [respondentName, respondentCpf]);
 
@@ -209,8 +264,8 @@ export const FormularioPublico: React.FC = () => {
         }));
     };
 
-    const validate = () => {
-        for (const q of questions) {
+    const validate = (qs: FormQuestion[]) => {
+        for (const q of qs) {
             if (q.required) {
                 const val = answers[q.id];
                 if (val === undefined || val === '' || val === null) {
@@ -222,8 +277,35 @@ export const FormularioPublico: React.FC = () => {
         return true;
     };
 
+    const handleNext = () => {
+        const currentQs = sections[currentSection].questions;
+
+        // Validate Identity on first section
+        if (currentSection === 0) {
+            if (!isIdentityValid) {
+                alert("Preencha seus dados de identificação corretamente antes de avançar.");
+                return;
+            }
+        }
+
+        if (validate(currentQs)) {
+            setCurrentSection(prev => prev + 1);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    };
+
+    const handleBack = () => {
+        if (currentSection > 0) {
+            setCurrentSection(prev => prev - 1);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        } else {
+            setStep('cover');
+        }
+    };
+
     const handleSubmit = async () => {
-        if (!validate()) return;
+        const currentQs = sections[currentSection].questions;
+        if (!validate(currentQs)) return; // Validate last section
         if (!form) return;
         if (!isIdentityValid) {
             alert("Preencha seus dados corretamente antes de enviar.");
@@ -233,16 +315,17 @@ export const FormularioPublico: React.FC = () => {
         setLoading(true);
 
         const answersToInsert = questions.map(q => {
+            if (q.question_type === 'section_break') return null;
             const val = answers[q.id];
             return {
                 form_id: form.id,
                 question_id: q.id,
                 responder_name: respondentName,
-                responder_identifier: `${respondentCpf} | ${respondentEmail}`, // Store CPF/Email in identifier
+                responder_identifier: `${respondentCpf} | ${respondentEmail}`,
                 answer_text: (q.question_type !== 'rating') ? String(val) : null,
                 answer_number: (q.question_type === 'rating') ? Number(val) : null,
             };
-        }).filter(a => answers[a.question_id] !== undefined);
+        }).filter(a => a !== null && answers[a.question_id] !== undefined);
 
         const { error: submitError } = await supabase
             .from('form_answers')
@@ -297,6 +380,9 @@ export const FormularioPublico: React.FC = () => {
     const FORM_WIDTH = "w-full max-w-[640px]";
     const ACCENT_BORDER = "border-t-[8px] border-t-[#35b6cf]";
 
+    const currentQs = sections[currentSection] ? sections[currentSection].questions : [];
+    const isLastSection = currentSection === sections.length - 1;
+
     return (
         <div className={`bg-slate-50 flex flex-col items-center font-sans px-3 sm:px-0 ${step === 'cover' ? 'h-screen overflow-hidden justify-center' : 'min-h-screen pt-4 sm:pt-8 pb-10 justify-start'}`}>
             {/* STEP 0: COVER PAGE */}
@@ -318,7 +404,7 @@ export const FormularioPublico: React.FC = () => {
                                     onClick={() => setStep('form')}
                                     className="bg-[#35b6cf] text-white px-5 py-1.5 rounded-md font-medium text-sm hover:bg-[#2ca1b7] transition-colors shadow-sm ring-offset-2 focus:ring-2 focus:ring-[#35b6cf]"
                                 >
-                                    Avançar
+                                    Começar
                                 </button>
                             </div>
                         </div>
@@ -336,65 +422,73 @@ export const FormularioPublico: React.FC = () => {
                     {/* Header Compacto */}
                     <div className={`bg-white rounded-lg shadow-sm border border-slate-200 ${ACCENT_BORDER} p-5 sm:p-6`}>
                         <h1 className="text-2xl font-normal text-slate-900">{form?.title}</h1>
-                        <div className="text-xs text-slate-500 mt-2 flex items-center gap-1">
-                            <span className="text-red-500">*</span> Indica pergunta obrigatória
+                        {currentSection > 0 && sections[currentSection].title && (
+                            <h2 className="text-lg font-medium text-[#35b6cf] mt-1">{sections[currentSection].title}</h2>
+                        )}
+                        <div className="text-xs text-slate-500 mt-2 flex items-center justify-between">
+                            <span className="flex items-center gap-1"><span className="text-red-500">*</span> Indica pergunta obrigatória</span>
+                            {sections.length > 1 && (
+                                <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-400">Página {currentSection + 1} de {sections.length}</span>
+                            )}
                         </div>
                     </div>
 
-                    {/* Identification (Mandatory) */}
-                    <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 sm:p-6">
-                        <h3 className="text-base font-normal text-slate-800 mb-6 flex items-center gap-2">
-                            Identificação
-                            {isIdentityValid ? <CheckCircle size={16} className="text-[#35b6cf]" /> : <span className="text-red-500 text-xs">* Obrigatório</span>}
-                        </h3>
-                        <div className="space-y-6">
-                            <div className="relative">
-                                <label className="text-sm font-medium text-slate-700 mb-2 block">Nome Completo <span className="text-red-500">*</span></label>
-                                <input
-                                    type="text"
-                                    placeholder="Sua resposta"
-                                    className={`w-full px-0 py-2 border-b focus:border-b-2 bg-transparent transition-all outline-none ${respondentName && respondentName.trim().split(' ').length < 2 ? 'border-red-300 focus:border-red-500' : 'border-slate-300 focus:border-[#35b6cf]'}`}
-                                    value={respondentName}
-                                    onChange={(e) => setRespondentName(e.target.value)}
-                                />
-                                {respondentName && respondentName.trim().split(' ').length < 2 && <p className="text-xs text-red-500 mt-1">Informe nome e sobrenome</p>}
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
-                                <div>
-                                    <label className="text-sm font-medium text-slate-700 mb-2 block">CPF <span className="text-red-500">*</span></label>
+                    {/* Identification (Mandatory) - SHOW ONLY ON FIRST SECTION */}
+                    {currentSection === 0 && (
+                        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 sm:p-6 animate-in fade-in duration-500">
+                            <h3 className="text-base font-normal text-slate-800 mb-6 flex items-center gap-2">
+                                Identificação
+                                {isIdentityValid ? <CheckCircle size={16} className="text-[#35b6cf]" /> : <span className="text-red-500 text-xs">* Obrigatório</span>}
+                            </h3>
+                            <div className="space-y-6">
+                                <div className="relative">
+                                    <label className="text-sm font-medium text-slate-700 mb-2 block">Nome Completo <span className="text-red-500">*</span></label>
                                     <input
                                         type="text"
                                         placeholder="Sua resposta"
-                                        maxLength={14}
-                                        className={`w-full px-0 py-2 border-b focus:border-b-2 bg-transparent transition-all outline-none ${respondentCpf && !validateCPF(respondentCpf) ? 'border-red-300 focus:border-red-500' : 'border-slate-300 focus:border-blue-600'}`}
-                                        value={respondentCpf}
-                                        onChange={(e) => {
-                                            let v = e.target.value.replace(/\D/g, '');
-                                            if (v.length > 11) v = v.slice(0, 11);
-                                            setRespondentCpf(v);
-                                        }}
+                                        className={`w-full px-0 py-2 border-b focus:border-b-2 bg-transparent transition-all outline-none ${respondentName && respondentName.trim().split(' ').length < 2 ? 'border-red-300 focus:border-red-500' : 'border-slate-300 focus:border-[#35b6cf]'}`}
+                                        value={respondentName}
+                                        onChange={(e) => setRespondentName(e.target.value)}
                                     />
-                                    {respondentCpf && !validateCPF(respondentCpf) && <span className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle size={12} /> CPF inválido</span>}
+                                    {respondentName && respondentName.trim().split(' ').length < 2 && <p className="text-xs text-red-500 mt-1">Informe nome e sobrenome</p>}
                                 </div>
-                                <div>
-                                    <label className="text-sm font-medium text-slate-700 mb-2 block">Email</label>
-                                    <input
-                                        type="email"
-                                        placeholder="Sua resposta"
-                                        className="w-full px-0 py-2 border-b border-slate-300 focus:border-b-2 focus:border-blue-600 bg-transparent transition-all outline-none"
-                                        value={respondentEmail}
-                                        onChange={(e) => setRespondentEmail(e.target.value)}
-                                    />
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                                    <div>
+                                        <label className="text-sm font-medium text-slate-700 mb-2 block">CPF <span className="text-red-500">*</span></label>
+                                        <input
+                                            type="text"
+                                            placeholder="Sua resposta"
+                                            maxLength={14}
+                                            className={`w-full px-0 py-2 border-b focus:border-b-2 bg-transparent transition-all outline-none ${respondentCpf && !validateCPF(respondentCpf) ? 'border-red-300 focus:border-red-500' : 'border-slate-300 focus:border-blue-600'}`}
+                                            value={respondentCpf}
+                                            onChange={(e) => {
+                                                let v = e.target.value.replace(/\D/g, '');
+                                                if (v.length > 11) v = v.slice(0, 11);
+                                                setRespondentCpf(v);
+                                            }}
+                                        />
+                                        {respondentCpf && !validateCPF(respondentCpf) && <span className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle size={12} /> CPF inválido</span>}
+                                    </div>
+                                    <div>
+                                        <label className="text-sm font-medium text-slate-700 mb-2 block">Email</label>
+                                        <input
+                                            type="email"
+                                            placeholder="Sua resposta"
+                                            className="w-full px-0 py-2 border-b border-slate-300 focus:border-b-2 focus:border-blue-600 bg-transparent transition-all outline-none"
+                                            value={respondentEmail}
+                                            onChange={(e) => setRespondentEmail(e.target.value)}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    )}
 
-                    {/* Questions */}
-                    <div className={`space-y-4 transition-all duration-500 ${!isIdentityValid ? 'opacity-50 pointer-events-none blur-[2px] select-none' : 'opacity-100'}`}>
-                        {questions.map((q) => (
-                            <div key={q.id} className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 sm:p-6 transition-all hover:shadow-md">
+                    {/* Questions of Current Section */}
+                    <div className={`space-y-4 transition-all duration-500 ${currentSection === 0 && !isIdentityValid ? 'opacity-50 pointer-events-none blur-[2px] select-none' : 'opacity-100'}`}>
+                        {currentQs.map((q) => (
+                            <div key={q.id} className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 sm:p-6 transition-all hover:shadow-md animate-in slide-in-from-right-4 duration-300">
                                 <label className="block text-base font-normal text-slate-900 mb-4">
                                     {q.label}
                                     {q.required && <span className="text-red-500 ml-1">*</span>}
@@ -480,18 +574,18 @@ export const FormularioPublico: React.FC = () => {
                     {/* Submit Bar */}
                     <div className="flex justify-between items-center py-6">
                         <button
-                            onClick={() => setStep('cover')}
+                            onClick={handleBack}
                             className="text-slate-500 hover:text-slate-800 hover:bg-slate-100 px-4 py-2 rounded transition-colors font-medium text-sm"
                         >
                             Voltar
                         </button>
 
                         <button
-                            onClick={handleSubmit}
-                            disabled={!isIdentityValid}
+                            onClick={isLastSection ? handleSubmit : handleNext}
+                            disabled={currentSection === 0 && !isIdentityValid}
                             className="bg-[#35b6cf] text-white px-6 py-2 rounded-md font-medium text-sm hover:bg-[#2ca1b7] transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ring-offset-2 focus:ring-2 focus:ring-[#35b6cf]"
                         >
-                            Enviar
+                            {isLastSection ? 'Enviar' : 'Avançar'}
                         </button>
                     </div>
                     <div className="text-center text-xs text-slate-400 pb-8">

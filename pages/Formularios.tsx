@@ -1,11 +1,11 @@
-
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import {
     Plus, Search, FileText, BarChart2, Link as LinkIcon,
     MoreVertical, Edit2, Trash2, X, Check, Copy, ExternalLink,
     ChevronUp, ChevronDown, List, Type, MessageSquare, Star,
-    User, Calendar, Clock, ArrowLeft, ChevronRight
+    User, Calendar, Clock, ArrowLeft, ChevronRight, Split, Layout, Minimize2, AlignJustify, GripVertical
 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { Form, FormQuestion, FormAnswer, QuestionType } from '../types';
@@ -81,6 +81,263 @@ const Modal = ({ isOpen, onClose, title, children }: any) => {
     );
 };
 
+const ReviewItem = React.memo(({ label, value }: { label: string, value: string }) => (
+    <div className="flex justify-between py-2 border-b border-slate-100 last:border-0">
+        <span className="text-slate-500">{label}</span>
+        <span className="font-medium text-slate-800">{value}</span>
+    </div>
+));
+
+const QuestionEditorItem = React.memo(({
+    q,
+    idx,
+    updateQuestion,
+    removeQuestion,
+    duplicateQuestion,
+    moveQuestion,
+    addSectionBreakAfter,
+    isCompact,
+    draggableProps,
+    dragHandleProps,
+    innerRef,
+    isDragging
+}: {
+    q: Partial<FormQuestion>,
+    idx: number,
+    updateQuestion: (i: number, f: string, v: any) => void,
+    removeQuestion: (i: number) => void,
+    duplicateQuestion: (i: number) => void,
+    moveQuestion: (i: number, d: 'up' | 'down') => void,
+    addSectionBreakAfter: (i: number) => void,
+    isCompact: boolean,
+    draggableProps?: any,
+    dragHandleProps?: any,
+    innerRef?: any,
+    isDragging?: boolean
+}) => {
+    // Local state buffering to prevent re-renders on every keystroke
+    const [label, setLabel] = useState(q.label || '');
+    const [options, setOptions] = useState<Record<string, string>>({
+        option_1: q.option_1 || '',
+        option_2: q.option_2 || '',
+        option_3: q.option_3 || '',
+        option_4: q.option_4 || '',
+        option_5: q.option_5 || '',
+    });
+    const [minValue, setMinValue] = useState(q.min_value || 1);
+    const [maxValue, setMaxValue] = useState(q.max_value || 5);
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+    // Sync local state when props change
+    useEffect(() => {
+        setLabel(q.label || '');
+    }, [q.label]);
+
+    useEffect(() => {
+        setOptions({
+            option_1: q.option_1 || '',
+            option_2: q.option_2 || '',
+            option_3: q.option_3 || '',
+            option_4: q.option_4 || '',
+            option_5: q.option_5 || '',
+        });
+    }, [q.option_1, q.option_2, q.option_3, q.option_4, q.option_5]);
+
+    useEffect(() => {
+        setMinValue(q.min_value || 1);
+    }, [q.min_value]);
+
+    useEffect(() => {
+        setMaxValue(q.max_value || 5);
+    }, [q.max_value]);
+
+    // Optimize Textarea Auto-Resize
+    React.useLayoutEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto'; // Reset to shrink if needed
+            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+        }
+    }, [label, isExpanded, isCompact]); // Re-run on expansion/mode switch
+
+    // Handlers
+    const handleLabelBlur = () => {
+        if (label !== q.label) {
+            updateQuestion(idx, 'label', label);
+        }
+    };
+
+    const handleOptionBlur = (key: string) => {
+        if (options[key] !== (q as any)[key]) {
+            updateQuestion(idx, key, options[key]);
+        }
+    };
+
+    const handleMinBlur = () => {
+        if (minValue !== q.min_value) updateQuestion(idx, 'min_value', minValue);
+    };
+
+    const handleMaxBlur = () => {
+        if (maxValue !== q.max_value) updateQuestion(idx, 'max_value', maxValue);
+    };
+
+    // Compact View Render
+    if (isCompact && !isExpanded) {
+        return (
+            <div
+                ref={innerRef}
+                {...draggableProps}
+                {...dragHandleProps}
+                className={`bg-white border rounded-lg p-3 flex items-center gap-4 group hover:border-blue-300 transition-all cursor-grab active:cursor-grabbing shadow-sm hover:shadow-md ${isDragging ? 'shadow-lg ring-2 ring-blue-400 border-blue-400 rotate-1 z-50' : 'border-slate-200'}`}
+                onClick={() => setIsExpanded(true)}
+                style={draggableProps?.style}
+            >
+                {/* Drag Handle & Type Icon */}
+                <div className="flex items-center gap-3 text-slate-400">
+                    <div className={`p-1.5 rounded-md border text-slate-500 ${q.question_type === 'section_break' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`}>
+                        {q.question_type === 'short_text' && <Type size={14} />}
+                        {q.question_type === 'long_text' && <MessageSquare size={14} />}
+                        {q.question_type === 'choice' && <List size={14} />}
+                        {q.question_type === 'select' && <ChevronDown size={14} />}
+                        {q.question_type === 'rating' && <Star size={14} />}
+                        {q.question_type === 'section_break' && <ArrowLeft className="rotate-[-90deg]" size={14} />}
+                    </div>
+                </div>
+
+                {/* Label Summary */}
+                <div className="flex-1 font-medium text-slate-700 select-none truncate">
+                    {q.question_type === 'section_break' ? (
+                        <span className="uppercase text-xs font-bold tracking-wider text-slate-500">NOVA SEÇÃO: <span className="text-slate-800">{q.label || '(Sem Título)'}</span></span>
+                    ) : (
+                        <span>{idx + 1}. {q.label || <span className="text-slate-400 italic font-normal">Digite a pergunta...</span>}</span>
+                    )}
+                </div>
+
+                {/* Quick Actions */}
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {q.question_type !== 'section_break' && (
+                        <button onClick={(e) => { e.stopPropagation(); addSectionBreakAfter(idx); }} className="p-1.5 hover:bg-purple-50 text-slate-400 hover:text-purple-600 rounded transition-colors" title="Inserir Quebra de Seção Abaixo"><Split size={14} /></button>
+                    )}
+                    <button onClick={(e) => { e.stopPropagation(); duplicateQuestion(idx); }} className="p-1.5 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded transition-colors" title="Duplicar"><Copy size={14} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); removeQuestion(idx); }} className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded transition-colors" title="Excluir"><Trash2 size={14} /></button>
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div
+            ref={innerRef}
+            {...draggableProps}
+            className={`bg-slate-50 border border-slate-200 rounded-xl p-4 relative group animate-in fade-in duration-200 ${isDragging ? 'shadow-xl ring-2 ring-blue-500 z-50' : ''}`}
+            style={draggableProps?.style}
+        >
+
+
+            {!isCompact && (
+                <div
+                    {...dragHandleProps}
+                    className="absolute left-1/2 -translate-x-1/2 top-2 p-1 text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                    <GripVertical size={16} />
+                </div>
+            )}
+
+
+
+            <div className="flex items-start gap-3 mb-3">
+                <div className="flex items-center gap-2 mt-1">
+                    {isCompact && (
+                        <button
+                            onClick={() => setIsExpanded(false)}
+                            className="p-2 rounded-lg border border-slate-200 text-slate-400 hover:text-blue-600 hover:border-blue-200 hover:bg-slate-50 transition-all"
+                            title="Recolher"
+                        >
+                            <ChevronUp size={18} />
+                        </button>
+                    )}
+
+                </div>
+
+                <div className="flex-1 pt-1">
+                    {q.question_type === 'section_break' && <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Nova Seção (Quebra de Página)</span>}
+                    <textarea
+                        ref={textareaRef}
+                        className={`bg-transparent font-medium w-full focus:outline-none border-b border-transparent focus:border-blue-300 px-1 resize-none overflow-hidden ${q.question_type === 'section_break' ? 'text-lg text-slate-800 font-bold placeholder:text-slate-300' : 'text-slate-700 placeholder:text-slate-400'}`}
+                        value={label}
+                        onChange={(e) => setLabel(e.target.value)}
+                        onBlur={handleLabelBlur}
+                        rows={1}
+                        placeholder={q.question_type === 'section_break' ? "Título da Seção (Opcional)" : "Digite a pergunta..."}
+                    />
+                </div>
+
+                <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => duplicateQuestion(idx)} className="p-1.5 hover:bg-blue-100 text-blue-600 rounded" title="Duplicar"><Copy size={16} /></button>
+                    {q.question_type !== 'section_break' && (
+                        <button onClick={() => addSectionBreakAfter(idx)} className="p-1.5 hover:bg-purple-100 text-purple-600 rounded" title="Inserir Quebra de Seção Abaixo"><Split size={16} /></button>
+                    )}
+                    <button onClick={() => removeQuestion(idx)} className="p-1.5 hover:bg-red-100 text-red-500 rounded" title="Excluir"><Trash2 size={16} /></button>
+                </div>
+            </div>
+            {q.question_type !== 'section_break' && (
+                <div className="pl-12 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="checkbox"
+                            checked={q.required}
+                            onChange={(e) => updateQuestion(idx, 'required', e.target.checked)}
+                        />
+                        <span className="text-sm text-slate-500">Obrigatória</span>
+                    </div>
+
+                    {(q.question_type === 'choice' || q.question_type === 'select') && (
+                        <div className="col-span-2 space-y-2">
+                            <p className="text-xs font-bold text-slate-400 uppercase">Opções {q.question_type === 'select' && '(Dropdown)'}</p>
+                            {[1, 2, 3, 4, 5].map(optNum => (
+                                <input
+                                    key={optNum}
+                                    className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm"
+                                    placeholder={`Opção ${optNum}`}
+                                    value={options[`option_${optNum}`]}
+                                    onChange={(e) => setOptions(prev => ({ ...prev, [`option_${optNum}`]: e.target.value }))}
+                                    onBlur={() => handleOptionBlur(`option_${optNum}`)}
+                                />
+                            ))}
+                        </div>
+                    )}
+
+                    {q.question_type === 'rating' && (
+                        <div className="col-span-2 grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-xs text-slate-500">Mínimo</label>
+                                <input
+                                    type="number"
+                                    className="w-full bg-white border rounded px-2 py-1"
+                                    value={minValue}
+                                    onChange={e => setMinValue(parseInt(e.target.value) || 0)}
+                                    onBlur={handleMinBlur}
+                                />
+                            </div>
+                            <div>
+                                <label className="text-xs text-slate-500">Máximo</label>
+                                <input
+                                    type="number"
+                                    className="w-full bg-white border rounded px-2 py-1"
+                                    value={maxValue}
+                                    onChange={e => setMaxValue(parseInt(e.target.value) || 0)}
+                                    onBlur={handleMaxBlur}
+                                />
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}); // Removed custom comparator to allow safe shallow comparison including isCompact prop
+
 /* --- Main Component --- */
 
 export const Formularios: React.FC = () => {
@@ -129,9 +386,15 @@ export const Formularios: React.FC = () => {
             .eq('form_id', form.id)
             .order('question_order', { ascending: true });
 
+        // Ensure every question has a temp_id for stable keys
+        const questionsWithTempId = (questions || []).map(q => ({
+            ...q,
+            temp_id: `q_${q.id || 'new'}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        }));
+
         setEditingForm({
             ...form,
-            questions: questions || []
+            questions: questionsWithTempId
         });
         setDeletedQuestionIds([]);
         setIsEditorOpen(true);
@@ -208,6 +471,8 @@ export const Formularios: React.FC = () => {
         if (editingForm.questions && editingForm.questions.length > 0) {
             for (let i = 0; i < editingForm.questions.length; i++) {
                 const q = editingForm.questions[i];
+                // Remove temp_id before sending to DB to avoid errors if strict
+                const { temp_id, ...qDataRaw } = q;
                 const qData = {
                     form_id: formId,
                     question_order: i,
@@ -242,8 +507,34 @@ export const Formularios: React.FC = () => {
             }
         }
 
-        setIsEditorOpen(false);
-        fetchForms();
+        // 4. Reload Form Data ensuring IDs are synced
+        const { data: reloadedForm, error: reloadError } = await supabase
+            .from('forms')
+            .select('*')
+            .eq('id', formId)
+            .single();
+
+        const { data: reloadedQuestions, error: qReloadError } = await supabase
+            .from('form_questions')
+            .select('*')
+            .eq('form_id', formId)
+            .order('question_order', { ascending: true });
+
+        if (!reloadError && !qReloadError && reloadedForm) {
+            // Update local state with DB IDs to prevent duplication on next save
+            const syncedForm = { ...reloadedForm, questions: reloadedQuestions || [] };
+            setEditingForm(syncedForm);
+            setDeletedQuestionIds([]); // Reset deletion queue
+
+            alert('Formulário salvo com sucesso!');
+
+            // Update list without full refetch if possible, or just fetch
+            fetchForms();
+        } else {
+            alert('Formulário salvo, mas erro ao recarregar dados. Por favor, reabra o editor.');
+            setIsEditorOpen(false);
+            fetchForms();
+        }
     };
 
     const [viewMode, setViewMode] = useState<'list' | 'analytics'>('list');
@@ -255,6 +546,7 @@ export const Formularios: React.FC = () => {
     // New Analytics State
     const [analyticsTab, setAnalyticsTab] = useState<'overview' | 'individual'>('overview');
     const [selectedRespondent, setSelectedRespondent] = useState<string | null>(null); // Groups by responder_identifier + timestamp key
+    // isCompactMode state removed - enforced to true by default props passing
 
     const handleViewStats = async (form: Form) => {
         setAnalyticsForm(form);
@@ -350,58 +642,84 @@ export const Formularios: React.FC = () => {
                 label: '',
                 question_type: type,
                 required: false,
-                question_order: (prev?.questions?.length || 0)
+                question_order: (prev?.questions?.length || 0),
+                temp_id: `new_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
             }]
         }));
     };
 
-    const updateQuestion = (index: number, field: string, value: any) => {
+    const updateQuestion = React.useCallback((index: number, field: string, value: any) => {
         setEditingForm(prev => {
-            const newQuestions = [...(prev?.questions || [])];
+            if (!prev || !prev.questions) return prev;
+            const newQuestions = [...prev.questions];
             newQuestions[index] = { ...newQuestions[index], [field]: value };
-            return { ...prev!, questions: newQuestions };
+            return { ...prev, questions: newQuestions };
         });
-    };
+    }, []);
 
-    const removeQuestion = (index: number) => {
-        const question = editingForm?.questions?.[index];
-        if (question?.id) {
-            setDeletedQuestionIds(prev => [...prev, question.id!]);
-        }
-        setEditingForm(prev => ({
-            ...prev!,
-            questions: prev?.questions?.filter((_, i) => i !== index) || []
-        }));
-    };
+    const removeQuestion = React.useCallback((index: number) => {
+        setEditingForm(prev => {
+            if (!prev?.questions) return prev;
+            const q = prev.questions[index];
+            if (q.id) {
+                setDeletedQuestionIds(ids => [...ids, q.id!]);
+            }
+            return {
+                ...prev,
+                questions: prev.questions.filter((_, i) => i !== index)
+            };
+        });
+    }, []);
 
-    const moveQuestion = (index: number, direction: 'up' | 'down') => {
-        if (!editingForm?.questions) return;
-        const newQuestions = [...editingForm.questions];
-        if (direction === 'up' && index > 0) {
-            [newQuestions[index], newQuestions[index - 1]] = [newQuestions[index - 1], newQuestions[index]];
-        } else if (direction === 'down' && index < newQuestions.length - 1) {
-            [newQuestions[index], newQuestions[index + 1]] = [newQuestions[index + 1], newQuestions[index]];
-        }
-        setEditingForm(prev => ({ ...prev!, questions: newQuestions }));
-    };
+    const moveQuestion = React.useCallback((index: number, direction: 'up' | 'down') => {
+        setEditingForm(prev => {
+            if (!prev?.questions) return prev;
+            const newQuestions = [...prev.questions];
+            if (direction === 'up' && index > 0) {
+                [newQuestions[index], newQuestions[index - 1]] = [newQuestions[index - 1], newQuestions[index]];
+            } else if (direction === 'down' && index < newQuestions.length - 1) {
+                [newQuestions[index], newQuestions[index + 1]] = [newQuestions[index + 1], newQuestions[index]];
+            }
+            return { ...prev, questions: newQuestions };
+        });
+    }, []);
 
-    const duplicateQuestion = (index: number) => {
-        if (!editingForm?.questions) return;
-        const questionToClone = editingForm.questions[index];
-        const newQuestion = {
-            ...questionToClone,
-            id: undefined, // ensure it's treated as a new question
-            label: `${questionToClone.label} (Cópia)`,
-        };
+    const duplicateQuestion = React.useCallback((index: number) => {
+        setEditingForm(prev => {
+            if (!prev?.questions) return prev;
+            const questionToClone = prev.questions[index];
+            const newQuestion = {
+                ...questionToClone,
+                id: undefined, // ensure it's treated as a new question
+                label: `${questionToClone.label} (Cópia)`,
+                temp_id: `copy_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+            };
 
-        const newQuestions = [...editingForm.questions];
-        newQuestions.splice(index + 1, 0, newQuestion);
+            const newQuestions = [...prev.questions];
+            newQuestions.splice(index + 1, 0, newQuestion);
 
-        // Re-index questions just in case, though usually handled on save
-        const reindexed = newQuestions.map((q, i) => ({ ...q, question_order: i }));
+            const reindexed = newQuestions.map((q, i) => ({ ...q, question_order: i }));
 
-        setEditingForm(prev => ({ ...prev!, questions: reindexed }));
-    };
+            return { ...prev, questions: reindexed };
+        });
+    }, []);
+
+    const addSectionBreakAfter = React.useCallback((index: number) => {
+        setEditingForm(prev => {
+            if (!prev?.questions) return prev;
+            const newQuestion = {
+                label: '',
+                question_type: 'section_break' as QuestionType,
+                required: false,
+                temp_id: `section_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+            };
+            const newQuestions = [...prev.questions];
+            newQuestions.splice(index + 1, 0, newQuestion);
+
+            const reindexed = newQuestions.map((q, i) => ({ ...q, question_order: i }));
+            return { ...prev, questions: reindexed };
+        });
+    }, []);
 
     const copyToClipboard = (slug: string) => {
         const url = `${window.location.origin}/#/form/${slug}`;
@@ -462,7 +780,12 @@ export const Formularios: React.FC = () => {
                                     {(q.question_type === 'short_text' || q.question_type === 'long_text') && <MessageSquare size={20} />}
                                 </div>
                                 <div>
-                                    <h4 className="font-bold text-slate-700 text-lg">{q.label}</h4>
+                                    <h4 className="font-bold text-slate-700 text-lg flex items-center gap-2 flex-wrap">
+                                        {q.label}
+                                        <span className={`text-xs px-2 py-0.5 rounded-full font-normal ${q.required ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
+                                            {q.required ? 'Obrigatória' : 'Opcional'}
+                                        </span>
+                                    </h4>
                                     <span className="text-xs font-medium bg-slate-100 text-slate-500 px-2 py-1 rounded mt-1 inline-block">
                                         {q.question_type === 'rating' ? 'Escala/Nota' : q.question_type === 'choice' ? 'Múltipla Escolha' : q.question_type === 'select' ? 'Dropdown' : 'Texto'}
                                     </span>
@@ -615,7 +938,12 @@ export const Formularios: React.FC = () => {
                                     <div key={q.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
                                         <div className="absolute top-0 left-0 w-1 h-full bg-slate-200"></div>
                                         <span className="text-xs font-bold text-slate-400 uppercase mb-2 block tracking-wider">Pergunta {idx + 1}</span>
-                                        <h3 className="text-lg font-medium text-slate-800 mb-4">{q.label}</h3>
+                                        <h3 className="text-lg font-medium text-slate-800 mb-4 flex items-center gap-2 flex-wrap">
+                                            {q.label}
+                                            <span className={`text-xs px-2 py-0.5 rounded-full font-normal ${q.required ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
+                                                {q.required ? 'Obrigatória' : 'Opcional'}
+                                            </span>
+                                        </h3>
 
                                         <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                                             {ans ? (
@@ -890,100 +1218,67 @@ export const Formularios: React.FC = () => {
 
                     <div className="border-t border-slate-200 pt-6">
                         <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-bold text-slate-800">Perguntas</h3>
+                            <div className="flex items-center gap-3">
+                                <h3 className="text-lg font-bold text-slate-800">Perguntas</h3>
+                            </div>
                             <div className="flex gap-2">
                                 <Button size="sm" variant="outline" onClick={() => addQuestion('short_text')}>+ Texto Curto</Button>
                                 <Button size="sm" variant="outline" onClick={() => addQuestion('long_text')}>+ Texto Longo</Button>
                                 <Button size="sm" variant="outline" onClick={() => addQuestion('choice')}>+ Opções</Button>
-                                <Button size="sm" variant="outline" onClick={() => addQuestion('select')}>+ Lista (Dropdown)</Button>
+                                <Button size="sm" variant="outline" onClick={() => addQuestion('select')}>+ Lista</Button>
                                 <Button size="sm" variant="outline" onClick={() => addQuestion('rating')}>+ Nota</Button>
+                                <Button size="sm" variant="outline" onClick={() => addQuestion('section_break')} className="border-slate-800 text-slate-800 hover:bg-slate-100">+ Nova Seção</Button>
                             </div>
                         </div>
 
-                        <div className="space-y-4">
-                            {editingForm?.questions?.map((q, idx) => (
-                                <div key={idx} className="bg-slate-50 border border-slate-200 rounded-xl p-4 relative group">
-                                    <div className="absolute right-4 top-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button onClick={() => moveQuestion(idx, 'up')} className="p-1 hover:bg-slate-200 rounded"><ChevronUp size={16} /></button>
-                                        <button onClick={() => moveQuestion(idx, 'down')} className="p-1 hover:bg-slate-200 rounded"><ChevronDown size={16} /></button>
-                                        <button onClick={() => duplicateQuestion(idx)} className="p-1 hover:bg-blue-100 text-blue-600 rounded mr-1"><Copy size={16} /></button>
-                                        <button onClick={() => removeQuestion(idx)} className="p-1 hover:bg-red-100 text-red-500 rounded"><Trash2 size={16} /></button>
-                                    </div>
-
-                                    <div className="flex items-center gap-3 mb-3">
-                                        <div className="p-2 bg-white rounded-lg border border-slate-200 text-slate-400">
-                                            {q.question_type === 'short_text' && <Type size={18} />}
-                                            {q.question_type === 'long_text' && <MessageSquare size={18} />}
-                                            {q.question_type === 'choice' && <List size={18} />}
-                                            {q.question_type === 'select' && <ChevronDown size={18} />}
-                                            {q.question_type === 'rating' && <Star size={18} />}
-                                        </div>
-                                        <textarea
-                                            className="bg-transparent font-medium text-slate-700 w-full focus:outline-none border-b border-transparent focus:border-blue-300 px-1 pr-28 resize-none overflow-hidden"
-                                            value={q.label}
-                                            onChange={(e) => {
-                                                updateQuestion(idx, 'label', e.target.value);
-                                                e.target.style.height = 'auto';
-                                                e.target.style.height = e.target.scrollHeight + 'px';
-                                            }}
-                                            ref={(el) => {
-                                                if (el) {
-                                                    el.style.height = 'auto';
-                                                    el.style.height = el.scrollHeight + 'px';
-                                                }
-                                            }}
-                                            rows={1}
-                                            placeholder="Digite a pergunta..."
-                                        />
-                                    </div>
-
-                                    <div className="pl-12 grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="checkbox"
-                                                checked={q.required}
-                                                onChange={(e) => updateQuestion(idx, 'required', e.target.checked)}
-                                            />
-                                            <span className="text-sm text-slate-500">Obrigatória</span>
-                                        </div>
-
-                                        {(q.question_type === 'choice' || q.question_type === 'select') && (
-                                            <div className="col-span-2 space-y-2">
-                                                <p className="text-xs font-bold text-slate-400 uppercase">Opções {q.question_type === 'select' && '(Dropdown)'}</p>
-                                                {[1, 2, 3, 4, 5].map(optNum => (
-                                                    <input
-                                                        key={optNum}
-                                                        className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm"
-                                                        placeholder={`Opção ${optNum}`}
-                                                        value={(q as any)[`option_${optNum}`] || ''}
-                                                        onChange={(e) => updateQuestion(idx, `option_${optNum}`, e.target.value)}
+                        <DragDropContext onDragEnd={(result: DropResult) => {
+                            if (!result.destination) return;
+                            const items = Array.from(editingForm?.questions || []);
+                            const [reorderedItem] = items.splice(result.source.index, 1);
+                            items.splice(result.destination.index, 0, reorderedItem);
+                            setEditingForm(prev => prev ? { ...prev, questions: items } : null);
+                        }}>
+                            <Droppable droppableId="questions-list">
+                                {(provided) => (
+                                    <div
+                                        {...provided.droppableProps}
+                                        ref={provided.innerRef}
+                                        className="space-y-4"
+                                    >
+                                        {editingForm?.questions?.map((q, idx) => (
+                                            <Draggable
+                                                // @ts-ignore
+                                                key={q.id || q.temp_id || `temp_${idx}`}
+                                                draggableId={String(q.id || q.temp_id || `temp_${idx}`)}
+                                                index={idx}
+                                            >
+                                                {(provided, snapshot) => (
+                                                    <QuestionEditorItem
+                                                        innerRef={provided.innerRef}
+                                                        draggableProps={provided.draggableProps}
+                                                        dragHandleProps={provided.dragHandleProps}
+                                                        isDragging={snapshot.isDragging}
+                                                        q={q}
+                                                        idx={idx}
+                                                        updateQuestion={updateQuestion}
+                                                        removeQuestion={removeQuestion}
+                                                        duplicateQuestion={duplicateQuestion}
+                                                        moveQuestion={moveQuestion}
+                                                        addSectionBreakAfter={addSectionBreakAfter}
+                                                        isCompact={true} // Enforced Compact Mode
                                                     />
-                                                ))}
-                                            </div>
-                                        )}
-
-                                        {q.question_type === 'rating' && (
-                                            <div className="col-span-2 grid grid-cols-2 gap-4">
-                                                <div>
-                                                    <label className="text-xs text-slate-500">Mínimo</label>
-                                                    <input type="number" className="w-full bg-white border rounded px-2 py-1" value={q.min_value || 1} onChange={e => updateQuestion(idx, 'min_value', parseInt(e.target.value))} />
-                                                </div>
-                                                <div>
-                                                    <label className="text-xs text-slate-500">Máximo</label>
-                                                    <input type="number" className="w-full bg-white border rounded px-2 py-1" value={q.max_value || 5} onChange={e => updateQuestion(idx, 'max_value', parseInt(e.target.value))} />
-                                                </div>
-                                            </div>
-                                        )}
+                                                )}
+                                            </Draggable>
+                                        ))}
+                                        {provided.placeholder}
                                     </div>
-                                </div>
-                            ))}
-
-                            {(!editingForm?.questions || editingForm.questions.length === 0) && (
-                                <div className="text-center py-8 border-2 border-dashed border-slate-200 rounded-xl text-slate-400">
-                                    Nenhuma pergunta adicionada.
-                                </div>
-                            )}
-                        </div>
+                                )}
+                            </Droppable>
+                        </DragDropContext>      {(!editingForm?.questions || editingForm.questions.length === 0) && (
+                            <div className="text-center py-8 border-2 border-dashed border-slate-200 rounded-xl text-slate-400">
+                                Nenhuma pergunta adicionada.
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex justify-end pt-6 border-t border-slate-100">

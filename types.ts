@@ -55,7 +55,7 @@ export interface Cliente {
   status: string;
 }
 
-export type QuestionType = 'short_text' | 'long_text' | 'choice' | 'rating' | 'select';
+export type QuestionType = 'short_text' | 'long_text' | 'choice' | 'rating' | 'select' | 'section_break';
 
 export interface Form {
   id: number;
@@ -80,6 +80,7 @@ export interface FormQuestion {
   option_5?: string;
   min_value?: number;
   max_value?: number;
+  temp_id?: string; // For stable keys in frontend
 }
 
 export interface FormAnswer {

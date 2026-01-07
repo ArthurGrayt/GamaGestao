@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@hello-pangea/dnd": "^18.0.1",
     "@supabase/supabase-js": "^2.86.2",
     "buffer": "^6.0.3",
     "date-fns": "^4.1.0",
