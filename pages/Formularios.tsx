@@ -6,10 +6,12 @@ import {
     MoreVertical, Edit2, Trash2, X, Check, Copy, ExternalLink,
     ChevronUp, ChevronDown, List, Type, MessageSquare, Star,
     User, Users, Calendar, Clock, ArrowLeft, ChevronRight, Split, Layout, Minimize2, AlignJustify, GripVertical,
-    Building2, MapPin
+    Building2, MapPin, Briefcase, Filter, Download, Play, Pause, Settings, Save, CheckCircle, AlertCircle, Send, Hash
 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { Form, FormQuestion, FormAnswer, QuestionType } from '../types';
+import { Form, FormQuestion, FormAnswer, HSEDimension, QuestionType } from '../types';
+
+
 
 /* --- Internal UI Components --- */
 
@@ -429,6 +431,136 @@ export const Formularios: React.FC = () => {
     const [deletedQuestionIds, setDeletedQuestionIds] = useState<number[]>([]);
     const [isPsicosocial, setIsPsicosocial] = useState(false);
 
+    // Association State
+    const [companies, setCompanies] = useState<any[]>([]); // Clientes
+    const [units, setUnits] = useState<any[]>([]); // Unidades
+    const [sectors, setSectors] = useState<any[]>([]); // Setores
+    const [colabsCount, setColabsCount] = useState<number>(0);
+    const [requireSector, setRequireSector] = useState(false);
+
+    // HSE Config State
+    const [hseModalOpen, setHseModalOpen] = useState(false);
+    const [currentHseForm, setCurrentHseForm] = useState<Form | null>(null);
+    const [hseDimensions, setHseDimensions] = useState<HSEDimension[]>([]);
+    const [hseQuestions, setHseQuestions] = useState<FormQuestion[]>([]);
+    const [loadingHse, setLoadingHse] = useState(false);
+    const [expandedDimensions, setExpandedDimensions] = useState<Set<number>>(new Set());
+
+    const toggleDimensionExpanded = (id: number) => {
+        const newSet = new Set(expandedDimensions);
+        if (newSet.has(id)) {
+            newSet.delete(id);
+        } else {
+            newSet.add(id);
+        }
+        setExpandedDimensions(newSet);
+    };
+
+    // HSE Handlers
+    const handleOpenHSEConfig = async (form: Form) => {
+        if (!form.hse_id) return;
+        setCurrentHseForm(form);
+        setLoadingHse(true);
+        setHseModalOpen(true);
+
+        try {
+            // Fetch ALL Dimensions (Schema is global/dictionary based, no hse_id)
+            const { data: dims, error: dimError } = await supabase
+                .from('form_hse_dimensions')
+                .select('*')
+                .order('id', { ascending: true });
+
+            if (dimError) throw dimError;
+            setHseDimensions(dims || []);
+
+            // Fetch Questions for this form
+            const { data: qs, error: qError } = await supabase
+                .from('form_questions')
+                .select('*')
+                .eq('form_id', form.id)
+                .order('question_order', { ascending: true });
+
+            if (qError) throw qError;
+            setHseQuestions(qs || []);
+
+        } catch (err) {
+            console.error("Error loading HSE config:", err);
+            alert("Erro ao carregar configurações HSE.");
+        } finally {
+            setLoadingHse(false);
+        }
+    };
+
+    const handleCreateDimension = async () => {
+        const name = prompt("Nome da nova dimensão:");
+        if (!name) return;
+
+        try {
+            const { data, error } = await supabase
+                .from('form_hse_dimensions')
+                .insert({
+                    name: name,
+                    is_positive: true, // Default
+                    risk_label: 'Risco Padrão' // Default
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+            setHseDimensions([...hseDimensions, data]);
+        } catch (err) {
+            console.error(err);
+            alert("Erro ao criar dimensão.");
+        }
+    };
+
+    const handleUpdateDimension = async (id: number, updates: Partial<HSEDimension>) => {
+        try {
+            const { error } = await supabase
+                .from('form_hse_dimensions')
+                .update(updates)
+                .eq('id', id);
+
+            if (error) throw error;
+            setHseDimensions(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d));
+        } catch (err) {
+            console.error(err);
+            alert("Erro ao atualizar dimensão.");
+        }
+    };
+
+    const handleDeleteDimension = async (id: number) => {
+        if (!confirm("Excluir esta dimensão?")) return;
+        try {
+            const { error } = await supabase.from('form_hse_dimensions').delete().eq('id', id);
+            if (error) throw error;
+            setHseDimensions(prev => prev.filter(d => d.id !== id));
+            setHseQuestions(prev => prev.map(q => q.hse_dimension_id === id ? { ...q, hse_dimension_id: undefined } : q));
+        } catch (err) {
+            console.error(err);
+            alert("Erro ao excluir dimensão.");
+        }
+    };
+
+    const handleAssociateQuestion = async (questionId: number, dimensionId: number | null, numberInDim?: number) => {
+        try {
+            const updates: any = { hse_dimension_id: dimensionId };
+            if (numberInDim !== undefined) updates.hse_question_number = numberInDim;
+
+            const { error } = await supabase
+                .from('form_questions')
+                .update(updates)
+                .eq('id', questionId);
+
+            if (error) throw error;
+
+            setHseQuestions(prev => prev.map(q => q.id === questionId ? { ...q, ...updates } : q));
+        } catch (err) {
+            console.error(err);
+            alert("Erro ao associar questão.");
+        }
+    };
+
     useEffect(() => {
         fetchForms();
 
@@ -793,12 +925,7 @@ export const Formularios: React.FC = () => {
     const [selectedRespondent, setSelectedRespondent] = useState<string | null>(null); // Groups by responder_identifier + timestamp key
     // isCompactMode state removed - enforced to true by default props passing
 
-    // Association State
-    const [companies, setCompanies] = useState<any[]>([]); // Clientes
-    const [units, setUnits] = useState<any[]>([]); // Unidades
-    const [sectors, setSectors] = useState<any[]>([]); // Setores
-    const [colabsCount, setColabsCount] = useState<number>(0);
-    const [requireSector, setRequireSector] = useState(false);
+
 
     const handleViewStats = async (form: Form) => {
         setAnalyticsForm(form);
@@ -1420,6 +1547,17 @@ export const Formularios: React.FC = () => {
                                 >
                                     <BarChart2 size={16} />
                                 </Button>
+                                {form.hse_id && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-slate-400 hover:text-slate-700"
+                                        onClick={() => handleOpenHSEConfig(form)}
+                                        title="Configurar Dimensões HSE"
+                                    >
+                                        <Settings size={16} />
+                                    </Button>
+                                )}
                             </div>
                         </Card>
                     ))}
@@ -1636,6 +1774,237 @@ export const Formularios: React.FC = () => {
                             Salvar Formulário
                         </Button>
                     </div>
+                </div>
+            </Modal>
+
+            {/* HSE Configuration Modal */}
+            <Modal
+                isOpen={hseModalOpen}
+                onClose={() => setHseModalOpen(false)}
+                title={`Configuração HSE - ${currentHseForm?.title}`}
+                maxWidth="max-w-6xl"
+            >
+                <div className="h-[80vh] flex flex-col">
+                    {/* Toolbar */}
+                    <div className="flex justify-between items-center mb-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                        <div className="flex items-center gap-2">
+                            <Settings className="text-slate-400" size={20} />
+                            <span className="font-bold text-slate-700">Dimensões e Associação</span>
+                        </div>
+                        <Button size="sm" onClick={handleCreateDimension}>
+                            <Plus size={16} /> Nova Dimensão
+                        </Button>
+                    </div>
+
+                    {loadingHse ? (
+                        <div className="flex-1 flex justify-center items-center">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                        </div>
+                    ) : (
+                        <DragDropContext onDragEnd={(result) => {
+                            if (!result.destination) return;
+                            const { source, destination, draggableId } = result;
+                            if (source.droppableId === destination.droppableId) return;
+
+                            const questionId = parseInt(draggableId);
+                            let newDimId: number | null = null;
+
+                            if (destination.droppableId !== 'unassigned') {
+                                newDimId = parseInt(destination.droppableId.replace('dim_', ''));
+                            }
+
+                            // Heuristic for question number: auto-assign next number if creating
+                            const currentMax = hseQuestions
+                                .filter(q => q.hse_dimension_id === newDimId)
+                                .reduce((max, q) => Math.max(max, q.hse_question_number || 0), 0);
+
+                            handleAssociateQuestion(questionId, newDimId, newDimId ? currentMax + 1 : undefined);
+                        }}>
+                            <div className="flex-1 flex gap-6 overflow-hidden">
+                                {/* Left Column: Unassigned Questions */}
+                                <div className="w-1/3 flex flex-col bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
+                                    <div className="p-3 bg-white border-b border-slate-200 font-bold text-slate-700 flex justify-between items-center">
+                                        <span>Não Associadas</span>
+                                        <span className="bg-slate-100 px-2 py-0.5 rounded text-xs text-slate-500">
+                                            {hseQuestions.filter(q => !q.hse_dimension_id).length}
+                                        </span>
+                                    </div>
+                                    <Droppable droppableId="unassigned">
+                                        {(provided, snapshot) => (
+                                            <div
+                                                {...provided.droppableProps}
+                                                ref={provided.innerRef}
+                                                className={`flex-1 overflow-y-auto p-3 space-y-2 ${snapshot.isDraggingOver ? 'bg-blue-50/50' : ''}`}
+                                            >
+                                                {hseQuestions.filter(q => !q.hse_dimension_id).map((q, index) => (
+                                                    // @ts-ignore
+                                                    <Draggable key={q.id} draggableId={String(q.id)} index={index}>
+                                                        {(provided, snapshot) => (
+                                                            <div
+                                                                ref={provided.innerRef}
+                                                                {...provided.draggableProps}
+                                                                {...provided.dragHandleProps}
+                                                                className={`bg-white p-3 rounded-lg border shadow-sm text-sm hover:border-blue-300 transition-all ${snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-400 rotate-1 z-50' : 'border-slate-200'}`}
+                                                            >
+                                                                <div className="flex gap-2">
+                                                                    <span className="font-mono text-slate-400 text-xs mt-0.5">#{q.id}</span>
+                                                                    <div className="flex-1">
+                                                                        <p className="font-medium text-slate-700 line-clamp-2">{q.label}</p>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </Draggable>
+                                                ))}
+                                                {provided.placeholder}
+                                            </div>
+                                        )}
+                                    </Droppable>
+                                </div>
+
+                                {/* Right Column: Dimensions */}
+                                <div className="w-2/3 overflow-y-auto flex flex-col gap-4 pr-1">
+                                    {hseDimensions.length === 0 && (
+                                        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                                            <p>Nenhuma dimensão criada.</p>
+                                            <Button variant="ghost" size="sm" onClick={handleCreateDimension}>Criar Dimensão</Button>
+                                        </div>
+                                    )}
+                                    {hseDimensions.map(dim => {
+                                        const isExpanded = expandedDimensions.has(dim.id);
+                                        const dimQuestions = hseQuestions.filter(q => q.hse_dimension_id === dim.id).sort((a, b) => (a.hse_question_number || 0) - (b.hse_question_number || 0));
+
+                                        return (
+                                            <div key={dim.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm transition-all">
+                                                {/* Dimension Header (Always Visible) */}
+                                                <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors"
+                                                    onClick={() => toggleDimensionExpanded(dim.id)}>
+                                                    <div className="flex-1 pr-4">
+                                                        <div className="flex justify-between items-center mb-1">
+                                                            <span className="font-bold text-slate-700 text-lg">{dim.name}</span>
+                                                            <span className="text-xs font-bold text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded">
+                                                                {dimQuestions.length} questões
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleDeleteDimension(dim.id); }}
+                                                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                        {isExpanded ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
+                                                    </div>
+                                                </div>
+
+                                                {/* Expandable Body */}
+                                                {isExpanded && (
+                                                    <div className="p-4 bg-white animate-in slide-in-from-top-2 duration-200">
+                                                        {/* Config Inputs */}
+                                                        <div className="mb-4 pb-4 border-b border-slate-100 flex flex-col gap-4">
+                                                            <div>
+                                                                <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Nome da Dimensão</label>
+                                                                <input
+                                                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                                    value={dim.name}
+                                                                    onChange={(e) => handleUpdateDimension(dim.id, { name: e.target.value })}
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">Cálculo do Score</label>
+                                                                <div className="flex gap-4">
+                                                                    <label className={`flex-1 flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${!dim.is_positive ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-slate-200 hover:border-slate-300'}`}>
+                                                                        <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${!dim.is_positive ? 'border-blue-600' : 'border-slate-300'}`}>
+                                                                            {!dim.is_positive && <div className="w-2 h-2 rounded-full bg-blue-600" />}
+                                                                        </div>
+                                                                        <div className="flex flex-col">
+                                                                            <span className={`text-sm font-bold ${!dim.is_positive ? 'text-blue-700' : 'text-slate-700'}`}>Quanto MENOR, melhor</span>
+                                                                            <span className="text-xs text-slate-500">Menor valor = Menor Risco</span>
+                                                                        </div>
+                                                                        <input type="radio" className="hidden" checked={!dim.is_positive} onChange={() => handleUpdateDimension(dim.id, { is_positive: false })} />
+                                                                    </label>
+
+                                                                    <label className={`flex-1 flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${dim.is_positive ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-slate-200 hover:border-slate-300'}`}>
+                                                                        <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${dim.is_positive ? 'border-blue-600' : 'border-slate-300'}`}>
+                                                                            {dim.is_positive && <div className="w-2 h-2 rounded-full bg-blue-600" />}
+                                                                        </div>
+                                                                        <div className="flex flex-col">
+                                                                            <span className={`text-sm font-bold ${dim.is_positive ? 'text-blue-700' : 'text-slate-700'}`}>Quanto MAIOR, melhor</span>
+                                                                            <span className="text-xs text-slate-500">Maior valor = Melhor resultado</span>
+                                                                        </div>
+                                                                        <input type="radio" className="hidden" checked={dim.is_positive} onChange={() => handleUpdateDimension(dim.id, { is_positive: true })} />
+                                                                    </label>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Droppable Zone */}
+                                                        <Droppable droppableId={`dim_${dim.id}`}>
+                                                            {(provided, snapshot) => (
+                                                                <div
+                                                                    {...provided.droppableProps}
+                                                                    ref={provided.innerRef}
+                                                                    className={`p-4 min-h-[100px] max-h-[400px] overflow-y-auto rounded-xl border-2 border-dashed transition-colors ${snapshot.isDraggingOver ? 'bg-blue-50 border-blue-300' : 'bg-slate-50 border-slate-200'}`}
+                                                                >
+                                                                    {dimQuestions.length === 0 && (
+                                                                        <div className="text-center text-slate-400 text-sm py-8">
+                                                                            <p className="font-medium">Nenhuma questão associada</p>
+                                                                            <p className="text-xs mt-1">Arraste questões da lista lateral para cá</p>
+                                                                        </div>
+                                                                    )}
+                                                                    <div className="space-y-2">
+                                                                        {dimQuestions.map((q, index) => (
+                                                                            // @ts-ignore
+                                                                            <Draggable key={q.id} draggableId={String(q.id)} index={index}>
+                                                                                {(provided, snapshot) => (
+                                                                                    <div
+                                                                                        ref={provided.innerRef}
+                                                                                        {...provided.draggableProps}
+                                                                                        {...provided.dragHandleProps}
+                                                                                        className="flex items-center gap-3 bg-white p-3 rounded-lg border border-slate-200 shadow-sm group hover:border-blue-300"
+                                                                                    >
+                                                                                        <div className="flex flex-col items-center cursor-grab active:cursor-grabbing">
+                                                                                            <GripVertical size={14} className="text-slate-300" />
+                                                                                        </div>
+                                                                                        <div className="flex-1">
+                                                                                            <p className="text-sm font-medium text-slate-700">{q.label}</p>
+                                                                                        </div>
+                                                                                        <div className="flex items-center gap-2 border-l border-slate-100 pl-3">
+                                                                                            <span className="text-xs text-slate-400 font-bold">Nº</span>
+                                                                                            <input
+                                                                                                type="number"
+                                                                                                className="w-12 text-center bg-slate-50 border border-slate-200 rounded text-sm py-0.5"
+                                                                                                value={q.hse_question_number || ''}
+                                                                                                onChange={(e) => handleAssociateQuestion(q.id, dim.id, parseInt(e.target.value))}
+                                                                                                placeholder="#"
+                                                                                            />
+                                                                                        </div>
+                                                                                        <button
+                                                                                            onClick={() => handleAssociateQuestion(q.id, null)}
+                                                                                            className="p-1.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                                                            title="Remover da Dimensão"
+                                                                                        >
+                                                                                            <X size={14} />
+                                                                                        </button>
+                                                                                    </div>
+                                                                                )}
+                                                                            </Draggable>
+                                                                        ))}
+                                                                    </div>
+                                                                    {provided.placeholder}
+                                                                </div>
+                                                            )}
+                                                        </Droppable>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </DragDropContext>
+                    )}
                 </div>
             </Modal>
         </div>

@@ -68,14 +68,15 @@ export interface Form {
   empresa?: string; // UI-only, not in DB
   unidade_id?: number; // ID
   setor?: number;   // ID
+  hse_id?: number;
   qtd_respostas?: number;
 }
 
 export interface HSEDimension {
   id: number;
   name: string;
-  description?: string;
-  weight?: number; // Optional weighting
+  is_positive: boolean;
+  risk_label: string;
 }
 
 export interface FormQuestion {
