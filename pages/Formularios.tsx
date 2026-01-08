@@ -6,7 +6,7 @@ import {
     MoreVertical, Edit2, Trash2, X, Check, Copy, ExternalLink,
     ChevronUp, ChevronDown, List, Type, MessageSquare, Star,
     User, Users, Calendar, Clock, ArrowLeft, ChevronRight, Split, Layout, Minimize2, AlignJustify, GripVertical,
-    Building2, MapPin, Briefcase, Filter, Download, Play, Pause, Settings, Save, CheckCircle, AlertCircle, Send, Hash, Info, ThumbsUp, ThumbsDown
+    Building2, MapPin, Briefcase, Filter, Download, Play, Pause, Settings, Save, CheckCircle, AlertCircle, Send, Hash, Info, ThumbsUp, ThumbsDown, PieChart as PieChartIcon
 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { Form, FormQuestion, FormAnswer, HSEDimension, QuestionType, HSERule, HSEDiagnosticItem } from '../types';
@@ -1068,6 +1068,11 @@ export const Formularios: React.FC = () => {
     const [diagnosticData, setDiagnosticData] = useState<HSEDiagnosticItem[]>([]);
     const [expandedInterpretativeDims, setExpandedInterpretativeDims] = useState<Set<number>>(new Set());
 
+    // Redesign Overview State
+    const [totalEmployees, setTotalEmployees] = useState<number>(0);
+    const [sectorStats, setSectorStats] = useState<{ name: string; count: number }[]>([]);
+    const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+
     // isCompactMode state removed - enforced to true by default props passing
 
 
@@ -1093,6 +1098,12 @@ export const Formularios: React.FC = () => {
             // Fetch Dimensions metadata (for is_positive check) from form-specific config
             const { data: dims } = await supabase
                 .from('form_hse_dimensions')
+                .select('*');
+
+            if (dims) setHseDimensions(dims);
+
+            const { data: rules } = await supabase
+                .from('form_hse_rules')
                 .select('*');
 
             if (dims) {
@@ -1146,6 +1157,53 @@ export const Formularios: React.FC = () => {
             .eq('form_id', form.id)
             .order('created_at', { ascending: false });
         setAnswers(aData || []);
+
+        setAnswers(aData || []);
+
+        // Fetch Employee Data for Comparison
+        if (form.unidade_id) {
+            try {
+                // 1. Get Empresa ID from Unidade
+                const { data: unitData } = await supabase
+                    .from('unidades')
+                    .select('empresaid')
+                    .eq('id', form.unidade_id)
+                    .single();
+
+                if (unitData?.empresaid) {
+                    // 2. Count Total Employees
+                    const { count, error: countError } = await supabase
+                        .from('users')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('empresa', unitData.empresaid)
+                        .eq('active', true); // Assuming active flag exists, matches typical pattern
+
+                    if (!countError) setTotalEmployees(count || 0);
+
+                    // 3. If > 20, fetch Sector Breakdown
+                    if ((count || 0) > 20) {
+                        const { data: usersData } = await supabase
+                            .from('users')
+                            .select('setor')
+                            .eq('empresa', unitData.empresaid)
+                            .eq('active', true);
+
+                        if (usersData) {
+                            const sectors: Record<string, number> = {};
+                            usersData.forEach(u => {
+                                const s = u.setor || 'Não Definido';
+                                sectors[s] = (sectors[s] || 0) + 1;
+                            });
+                            setSectorStats(Object.entries(sectors).map(([name, count]) => ({ name, count })));
+                        }
+                    } else {
+                        setSectorStats([]);
+                    }
+                }
+            } catch (err) {
+                console.error('Error fetching employee stats:', err);
+            }
+        }
 
         setLoadingStats(false);
     };
@@ -1313,170 +1371,320 @@ export const Formularios: React.FC = () => {
         // Prepare Colors for Charts
         const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1'];
 
-        const renderOverview = () => (
-            <div className="space-y-8 animate-in fade-in duration-300">
-                {/* Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 relative overflow-hidden group">
-                        <div className="absolute right-0 top-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-                            <BarChart2 size={80} className="text-blue-600" />
-                        </div>
-                        <h4 className="text-blue-600 font-bold text-sm uppercase tracking-wider mb-2">Total de Respostas</h4>
-                        <p className="text-4xl font-bold text-slate-800">{getTotalResponses()}</p>
-                    </div>
-                    <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100 relative overflow-hidden group">
-                        <div className="absolute right-0 top-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-                            <Check size={80} className="text-emerald-600" />
-                        </div>
-                        <h4 className="text-emerald-600 font-bold text-sm uppercase tracking-wider mb-2">Perguntas Ativas</h4>
-                        <p className="text-4xl font-bold text-slate-800">{questions.length}</p>
-                    </div>
-                    <div className="bg-purple-50 p-6 rounded-2xl border border-purple-100 relative overflow-hidden group">
-                        <div className="absolute right-0 top-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-                            <Clock size={80} className="text-purple-600" />
-                        </div>
-                        <h4 className="text-purple-600 font-bold text-sm uppercase tracking-wider mb-2">Última Resposta</h4>
-                        <p className="text-lg font-bold text-slate-800">
-                            {answers.length > 0 ? new Date(answers[0].created_at).toLocaleDateString() : '-'}
-                        </p>
-                    </div>
-                </div>
+        const renderOverview = () => {
+            const totalResponses = getTotalResponses();
+            const responseRate = totalEmployees > 0 ? (totalResponses / totalEmployees) * 100 : 0;
+            const uniqueResponders = new Set(answers.map(a => a.responder_identifier)).size;
 
-                {/* Detailed Analysis */}
-                <div className="space-y-6">
-                    <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                        <BarChart2 className="text-slate-400" size={20} />
-                        Análise por Pergunta
-                    </h3>
+            return (
+                <div className="space-y-6 animate-in fade-in duration-300">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-lg font-bold text-slate-700">Visão Geral</h2>
+                        <Button variant="outline" size="sm" onClick={() => setIsHistoryModalOpen(true)} className="gap-2">
+                            <Clock size={14} /> Histórico de Respostas
+                        </Button>
+                    </div>
 
-                    {questions.map((q) => (
-                        <Card key={q.id} className="p-6">
-                            <div className="flex items-start gap-4 mb-6 border-b border-slate-100 pb-4">
-                                <div className="p-2 bg-slate-100 rounded-lg text-slate-500">
-                                    {q.question_type === 'rating' && <Star size={20} />}
-                                    {(q.question_type === 'choice' || q.question_type === 'select') && <List size={20} />}
-                                    {(q.question_type === 'short_text' || q.question_type === 'long_text') && <MessageSquare size={20} />}
+                    {/* Compact Summary Cards - GRID COLS 4 to accommodate removal */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-all">
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total</span>
+                                <BarChart2 size={16} className="text-blue-500" />
+                            </div>
+                            <div>
+                                <span className="text-2xl font-bold text-slate-800">{totalResponses}</span>
+                                <span className="text-xs text-slate-400 ml-1">respostas</span>
+                            </div>
+                        </div>
+
+                        <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-all">
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Perguntas</span>
+                                <Check size={16} className="text-emerald-500" />
+                            </div>
+                            <div>
+                                <span className="text-2xl font-bold text-slate-800">{questions.length}</span>
+                                <span className="text-xs text-slate-400 ml-1">ativas</span>
+                            </div>
+                        </div>
+
+                        {/* Comparative Metrics */}
+                        {totalEmployees > 0 && (
+                            <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-all col-span-2">
+                                <div className="flex justify-between items-start mb-2">
+                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Adesão ({totalResponses}/{totalEmployees})</span>
+                                    <PieChartIcon size={16} className="text-orange-500" />
                                 </div>
-                                <div>
-                                    <h4 className="font-bold text-slate-700 text-lg flex items-center gap-2 flex-wrap">
-                                        {q.label}
-                                        <span className={`text-xs px-2 py-0.5 rounded-full font-normal ${q.required ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
-                                            {q.required ? 'Obrigatória' : 'Opcional'}
-                                        </span>
-                                    </h4>
-                                    <span className="text-xs font-medium bg-slate-100 text-slate-500 px-2 py-1 rounded mt-1 inline-block">
-                                        {q.question_type === 'rating' ? 'Escala/Nota' : q.question_type === 'choice' ? 'Múltipla Escolha' : q.question_type === 'select' ? 'Dropdown' : 'Texto'}
-                                    </span>
+                                <div className="flex items-center gap-4">
+                                    <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-orange-500 rounded-full transition-all duration-500"
+                                            style={{ width: `${Math.min(responseRate, 100)}%` }}
+                                        ></div>
+                                    </div>
+                                    <span className="text-lg font-bold text-slate-700">{responseRate.toFixed(1)}%</span>
                                 </div>
                             </div>
+                        )}
+                    </div>
 
-                            <div className="pl-0 md:pl-14">
-                                {/* RATING ANALYSIS */}
-                                {q.question_type === 'rating' && (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                                        <div className="bg-slate-50 rounded-2xl p-6 flex flex-col items-center justify-center">
-                                            <span className="text-6xl font-black text-blue-600">{getAverageRating(q.id)}</span>
-                                            <div className="flex gap-1 my-2">
-                                                {Array.from({ length: 5 }).map((_, i) => (
-                                                    <Star key={i} size={16} className={`${i < Math.round(Number(getAverageRating(q.id))) ? 'text-amber-400 fill-amber-400' : 'text-slate-300'}`} />
-                                                ))}
-                                            </div>
-                                            <span className="text-slate-400 font-medium">Média Geral (Max {q.max_value})</span>
-                                        </div>
-                                        <div>
-                                            {/* Simple histogram could go here, but for now just summary */}
-                                            <div className="space-y-2">
-                                                <p className="text-sm font-medium text-slate-600">Distribuição de notas:</p>
-                                                {/* We could map 1-5 and show bars, but reusing choice logic is better if we had time. Keeping it simple. */}
-                                                <div className="p-4 bg-slate-50 rounded-xl text-center text-slate-500 text-sm">
-                                                    Visualize a média calculada à esquerda com base em {answers.filter(a => a.question_id === q.id).length} respostas.
+                    {/* Sector Breakdown (Conditional) */}
+                    {totalEmployees > 20 && sectorStats.length > 0 && (
+                        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                            <h4 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
+                                <Users size={16} className="text-slate-400" />
+                                Adesão por Setor
+                            </h4>
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                {sectorStats.map((stat, idx) => (
+                                    <div key={idx} className="flex justify-between items-center p-2 bg-slate-50 rounded-lg border border-slate-100">
+                                        <span className="text-xs font-medium text-slate-600 truncate mr-2" title={stat.name}>{stat.name}</span>
+                                        <span className="text-xs font-bold text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200">{stat.count}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Detailed Analysis - STACKED BARS */}
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 mt-4">
+                            <BarChart2 className="text-slate-400" size={18} />
+                            Análise por Pergunta
+                        </h3>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {questions.map((q, idx) => {
+                                // Find Dimension info if available
+                                const diagItem = diagnosticData.find(d => d.texto_pergunta === q.label);
+                                const dimName = diagItem?.dimensao;
+                                const dimObj = hseDimensions.find(d => d.name?.toLowerCase().trim() === dimName?.toLowerCase().trim());
+                                const isPositive = dimObj ? dimObj.is_positive : true; // Default to true if not found
+
+                                // Calculate Buckets for Rating 0-4
+                                // Assumption: answer_value is numeric 0-4 or 1-5. User mentioned "Option 0".
+                                // We will map numeric values to indices 0,1,2,3,4.
+                                const qAnswers = answers.filter(a => a.question_id === q.id);
+                                const totalQ = qAnswers.length || 1;
+                                const buckets = [0, 0, 0, 0, 0];
+
+                                qAnswers.forEach(a => {
+                                    let idx = -1;
+                                    const answerVal = a.answer_number !== undefined && a.answer_number !== null ? a.answer_number : a.answer_text;
+                                    const val = Number(answerVal);
+
+                                    // 1. Try Numeric Direct Match (0-4)
+                                    if (!isNaN(val) && val >= 0 && val <= 4) {
+                                        idx = val;
+                                    }
+                                    // 2. Try matching Text to Options (Question fields option_1..option_5)
+                                    // 2. Try matching Text to Options or Standard Likert
+                                    else {
+                                        const cleanVal = String(answerVal || '').trim().toLowerCase();
+                                        const opt1 = q.option_1?.trim().toLowerCase();
+                                        const opt2 = q.option_2?.trim().toLowerCase();
+                                        const opt3 = q.option_3?.trim().toLowerCase();
+                                        const opt4 = q.option_4?.trim().toLowerCase();
+                                        const opt5 = q.option_5?.trim().toLowerCase();
+
+                                        if (opt1 && cleanVal === opt1) idx = 0;
+                                        else if (opt2 && cleanVal === opt2) idx = 1;
+                                        else if (opt3 && cleanVal === opt3) idx = 2;
+                                        else if (opt4 && cleanVal === opt4) idx = 3;
+                                        else if (opt5 && cleanVal === opt5) idx = 4;
+
+                                        // Standard Fallback (Portuguese)
+                                        else if (cleanVal === 'nunca') idx = 0;
+                                        else if (cleanVal === 'raramente') idx = 1;
+                                        else if (cleanVal === 'às vezes' || cleanVal === 'as vezes') idx = 2;
+                                        else if (cleanVal === 'frequentemente') idx = 3;
+                                        else if (cleanVal === 'sempre') idx = 4;
+
+                                        console.log(`[DEBUG] Q: ${q.id} Val: "${answerVal}" -> Idx: ${idx}`);
+                                    }
+
+                                    if (idx !== -1) {
+                                        buckets[idx]++;
+                                    }
+                                });
+
+                                // Define Colors based on isPositive
+                                // Positive (High Score = Good): 0 (Bad/Red) -> 4 (Good/Green)
+                                const colorsPositive = ['#EF4444', '#F97316', '#EAB308', '#34D399', '#10B981'];
+                                // Negative (High Score = Bad): 0 (Good/Green) -> 4 (Bad/Red)
+                                const colorsNegative = ['#10B981', '#34D399', '#EAB308', '#F97316', '#EF4444'];
+                                const activeColors = isPositive ? colorsPositive : colorsNegative;
+                                const labels = ['Nunca', 'Raramente', 'Às vezes', 'Frequentemente', 'Sempre'];
+
+                                const avg = Number(getAverageRating(q.id));
+
+                                // Risk Label Logic
+                                let riskLabel = '';
+                                let riskColorClass = '';
+
+                                // Try finding rule from DB first
+                                const rule = hseRules.find(r => r.dimension_id === dimObj?.id && avg >= r.min_val && avg <= r.max_val);
+                                if (rule) {
+                                    riskLabel = rule.texto_personalizado;
+                                    // Determine color based on matching one of 4 buckets if name matches, or generic logic
+                                    // Fallback text coloring based on score if we can't infer from text
+                                } else {
+                                    // Fallback to static 4 levels if no rule found
+                                    // User requested: baixo, médio, moderado, alto
+                                    // 0-1, 1-2, 2-3, 3-4
+                                    if (isPositive) {
+                                        // Positive: High Avg = Low Risk
+                                        if (avg >= 3) riskLabel = 'Baixo';
+                                        else if (avg >= 2) riskLabel = 'Médio';
+                                        else if (avg >= 1) riskLabel = 'Moderado';
+                                        else riskLabel = 'Alto';
+                                    } else {
+                                        // Negative: Low Avg = Low Risk
+                                        if (avg <= 1) riskLabel = 'Baixo';
+                                        else if (avg <= 2) riskLabel = 'Médio';
+                                        else if (avg <= 3) riskLabel = 'Moderado';
+                                        else riskLabel = 'Alto';
+                                    }
+                                }
+
+                                // Color Styling for Label (Independent of text, based on score severity)
+                                if (isPositive) {
+                                    if (avg <= 1.0) riskColorClass = 'text-red-600 bg-red-50 border-red-100'; // Bad
+                                    else if (avg <= 2.0) riskColorClass = 'text-orange-600 bg-orange-50 border-orange-100';
+                                    else if (avg <= 3.0) riskColorClass = 'text-amber-600 bg-amber-50 border-amber-100';
+                                    else riskColorClass = 'text-emerald-600 bg-emerald-50 border-emerald-100'; // Good
+                                } else {
+                                    if (avg >= 3.0) riskColorClass = 'text-red-600 bg-red-50 border-red-100'; // Bad
+                                    else if (avg >= 2.0) riskColorClass = 'text-orange-600 bg-orange-50 border-orange-100';
+                                    else if (avg >= 1.0) riskColorClass = 'text-amber-600 bg-amber-50 border-amber-100';
+                                    else riskColorClass = 'text-emerald-600 bg-emerald-50 border-emerald-100'; // Good
+                                }
+
+                                return (
+                                    <Card key={q.id} className="p-5 overflow-hidden hover:shadow-md transition-shadow">
+                                        {/* Header */}
+                                        <div className="flex justify-between items-start mb-4">
+                                            <div className="flex-1 pr-4">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <h4 className="font-normal text-slate-700 text-sm leading-snug break-words">
+                                                        <span className="font-bold mr-1 text-slate-400">#{idx + 1}</span>
+                                                        {q.label}
+                                                    </h4>
+                                                    {dimName && (
+                                                        <span className="shrink-0 text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 uppercase tracking-tight">
+                                                            {dimName}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
+                                            <div className="shrink-0 text-right">
+                                                {(q.question_type === 'rating' || q.question_type === 'choice' || q.question_type === 'select') && (
+                                                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold border ${riskColorClass}`}>
+                                                        Média {avg.toFixed(1)} <span className="opacity-75 font-normal">({riskLabel})</span>
+                                                    </span>
+                                                )}
+                                                <span className="block text-[10px] text-slate-400 mt-0.5 text-right">{qAnswers.length} resp.</span>
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
 
-                                {/* CHOICE / SELECT ANALYSIS (PIE CHART) */}
-                                {(q.question_type === 'choice' || q.question_type === 'select') && (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                        <div className="h-64 relative">
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <PieChart>
-                                                    <Pie
-                                                        data={Object.entries(getChoiceDistribution(q.id)).map(([name, value]) => ({ name, value }))}
-                                                        cx="50%"
-                                                        cy="50%"
-                                                        innerRadius={60}
-                                                        outerRadius={80}
-                                                        paddingAngle={5}
-                                                        dataKey="value"
-                                                    >
-                                                        {Object.entries(getChoiceDistribution(q.id)).map((entry, index) => (
-                                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                                        ))}
-                                                    </Pie>
-                                                    <RechartsTooltip formatter={(value: number) => [`${value} votos`, 'Quantidade']} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-                                                    <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                                                </PieChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                        <div className="space-y-3 flex flex-col justify-center">
-                                            {Object.entries(getChoiceDistribution(q.id))
-                                                .sort(([, a], [, b]) => b - a)
-                                                .map(([option, count], idx) => (
-                                                    <div key={option} className="group">
-                                                        <div className="flex justify-between text-sm mb-1">
-                                                            <span className="font-medium text-slate-700 flex items-center gap-2">
-                                                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[idx % COLORS.length] }}></div>
-                                                                {option}
+                                        {/* Visual - Stacked Bar (For Rating, Choice, Select) */}
+                                        {(q.question_type === 'rating' || q.question_type === 'choice' || q.question_type === 'select') ? (
+                                            <div className="w-full h-3 rounded-md overflow-hidden flex bg-slate-100">
+                                                {buckets.map((count, idx) => {
+                                                    const perc = (count / totalQ) * 100;
+                                                    if (perc === 0) return null;
+                                                    return (
+                                                        <div
+                                                            key={idx}
+                                                            className="h-full transition-all duration-500 relative group"
+                                                            style={{ width: `${perc}%`, backgroundColor: activeColors[idx] }}
+                                                            title={`Opção ${idx} (${labels[idx]}): ${count} votos (${Math.round(perc)}%)`}
+                                                        >
+                                                            {/* Tooltip via Group Hover - Custom if title isn't enough */}
+                                                            {/* Browser native 'title' is requested, but we can enhance if needed. User asked for 'Tooltip simples'. Title is simplest. */}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : (
+                                            // Fallback for non-rating questions (Text/Choice) -> Keep compact or simplify
+                                            <div className="text-xs text-slate-500 italic bg-slate-50 p-2 rounded">
+                                                Visualização disponível apenas para perguntas de escala.
+                                                {/* Could keep previous logic for Choice/Text but keeping it minimal for now as requested "Compact" */}
+                                            </div>
+                                        )}
+
+                                    </Card>
+                                )
+                            })}
+                        </div>
+                    </div>
+
+                    {/* History Modal */}
+                    {isHistoryModalOpen && (
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[99999] p-4">
+                            <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
+                                <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                                    <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                                        <Clock size={24} className="text-blue-600" />
+                                        Histórico de Respostas
+                                    </h3>
+                                    <button onClick={() => setIsHistoryModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                                        <X size={20} className="text-slate-400" />
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-0">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="bg-slate-50 text-slate-500 font-medium sticky top-0 z-10">
+                                            <tr>
+                                                <th className="px-6 py-3">Data</th>
+                                                <th className="px-6 py-3">ID Resposta</th>
+                                                <th className="px-6 py-3 text-right">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {Array.from(new Set(answers.map(a => a.responder_identifier))).map((respondentId, idx) => {
+                                                const respondentAnswers = answers.filter(a => a.responder_identifier === respondentId);
+                                                const firstAnswer = respondentAnswers[0];
+                                                if (!firstAnswer) return null;
+
+                                                return (
+                                                    <tr key={idx} className="hover:bg-slate-50 transition-colors group">
+                                                        <td className="px-6 py-4 text-slate-600">
+                                                            {new Date(firstAnswer.created_at).toLocaleDateString()} <span className="text-slate-400 text-xs ml-1">{new Date(firstAnswer.created_at).toLocaleTimeString()}</span>
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            <span className="font-mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">
+                                                                {(respondentId as string).split('_')[1]?.slice(-6) || '...'}
                                                             </span>
-                                                            <span className="text-slate-500 font-mono bg-slate-50 px-2 rounded">{count} ({Math.round(count / getTotalResponses() * 100)}%)</span>
-                                                        </div>
-                                                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                                            <div className="h-full rounded-full transition-all duration-500" style={{ width: `${(count / getTotalResponses()) * 100}%`, backgroundColor: COLORS[idx % COLORS.length] }}></div>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* TEXT ANALYSIS */}
-                                {(q.question_type === 'short_text' || q.question_type === 'long_text') && (
-                                    <div className="bg-slate-50 rounded-xl p-0 overflow-hidden border border-slate-100">
-                                        <div className="p-3 bg-slate-100 border-b border-slate-200 flex justify-between items-center">
-                                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Respostas Recentes</span>
-                                            <span className="text-xs text-slate-400">{answers.filter(a => a.question_id === q.id).length} textos</span>
-                                        </div>
-                                        <div className="max-h-64 overflow-y-auto p-2">
-                                            <ul className="space-y-2">
-                                                {answers
-                                                    .filter(a => a.question_id === q.id && a.answer_text)
-                                                    .slice(0, 10) // Show last 10
-                                                    .map((a, i) => (
-                                                        <li key={i} className="text-sm text-slate-600 bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
-                                                            <p className="italic">"{a.answer_text}"</p>
-                                                            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-50">
-                                                                <User size={12} className="text-slate-400" />
-                                                                <span className="text-xs text-slate-400">{a.responder_identifier || 'Anônimo'}</span>
-                                                                <span className="text-slate-300">•</span>
-                                                                <span className="text-xs text-slate-400">{new Date(a.created_at).toLocaleDateString()}</span>
-                                                            </div>
-                                                        </li>
-                                                    ))}
-                                            </ul>
-                                            {answers.filter(a => a.question_id === q.id).length === 0 && (
-                                                <div className="p-8 text-center text-slate-400 text-sm">Nenhuma resposta de texto ainda.</div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-right">
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                onClick={() => {
+                                                                    setIsHistoryModalOpen(false);
+                                                                    setAnalyticsTab('individual');
+                                                                    setSelectedRespondent(respondentId);
+                                                                }}
+                                                                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                                            >
+                                                                Ver Detalhes
+                                                            </Button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
-                        </Card>
-                    ))}
+                        </div>
+                    )}
                 </div>
-            </div>
-        );
+            );
+        };
 
         const renderIndividual = () => {
             const respondents = getRespondents();
