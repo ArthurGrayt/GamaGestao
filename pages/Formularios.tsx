@@ -6,10 +6,10 @@ import {
     MoreVertical, Edit2, Trash2, X, Check, Copy, ExternalLink,
     ChevronUp, ChevronDown, List, Type, MessageSquare, Star,
     User, Users, Calendar, Clock, ArrowLeft, ChevronRight, Split, Layout, Minimize2, AlignJustify, GripVertical,
-    Building2, MapPin, Briefcase, Filter, Download, Play, Pause, Settings, Save, CheckCircle, AlertCircle, Send, Hash
+    Building2, MapPin, Briefcase, Filter, Download, Play, Pause, Settings, Save, CheckCircle, AlertCircle, Send, Hash, Info
 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { Form, FormQuestion, FormAnswer, HSEDimension, QuestionType } from '../types';
+import { Form, FormQuestion, FormAnswer, HSEDimension, QuestionType, HSERule, HSEDiagnosticItem } from '../types';
 
 
 
@@ -443,6 +443,8 @@ export const Formularios: React.FC = () => {
     const [currentHseForm, setCurrentHseForm] = useState<Form | null>(null);
     const [hseDimensions, setHseDimensions] = useState<HSEDimension[]>([]);
     const [hseQuestions, setHseQuestions] = useState<FormQuestion[]>([]);
+    const [hseRules, setHseRules] = useState<HSERule[]>([]);
+    const [hseActiveTab, setHseActiveTab] = useState<'associations' | 'rules'>('associations');
     const [loadingHse, setLoadingHse] = useState(false);
     const [expandedDimensions, setExpandedDimensions] = useState<Set<number>>(new Set());
 
@@ -483,6 +485,17 @@ export const Formularios: React.FC = () => {
             if (qError) throw qError;
             setHseQuestions(qs || []);
 
+
+
+            // Fetch Rules
+            const { data: rules, error: rulesError } = await supabase
+                .from('form_hse_rules')
+                .select('*')
+                .order('min_val', { ascending: true }); // Default ordering
+
+            if (rulesError) throw rulesError;
+            setHseRules(rules || []);
+
         } catch (err) {
             console.error("Error loading HSE config:", err);
             alert("Erro ao carregar configurações HSE.");
@@ -490,6 +503,8 @@ export const Formularios: React.FC = () => {
             setLoadingHse(false);
         }
     };
+
+
 
     const handleCreateDimension = async () => {
         const name = prompt("Nome da nova dimensão:");
@@ -550,10 +565,35 @@ export const Formularios: React.FC = () => {
         setHseQuestions(prev => prev.map(q => q.id === questionId ? { ...q, ...updates } : q));
     };
 
-    const handleSaveHSEAssociations = async () => {
+    const handleAddRule = (dimId: number) => {
+        const newRule: HSERule = {
+            id: -1 * (Date.now() + Math.random()), // Temp negative ID
+            dimension_id: dimId,
+            min_val: 0,
+            max_val: 0,
+            texto_personalizado: ''
+        };
+        setHseRules([...hseRules, newRule]);
+    };
+
+    const handleUpdateRule = (ruleId: number, field: keyof HSERule, value: any) => {
+        setHseRules(prev => prev.map(r => r.id === ruleId ? { ...r, [field]: value } : r));
+    };
+
+    const handleDeleteRule = async (ruleId: number) => {
+        setHseRules(prev => prev.filter(r => r.id !== ruleId));
+        if (ruleId > 0) {
+            setDeletedRuleIds(prev => [...prev, ruleId]);
+        }
+    };
+
+    const [deletedRuleIds, setDeletedRuleIds] = useState<number[]>([]);
+
+    const handleSaveHSEConfig = async () => {
         if (!currentHseForm) return;
         setLoadingHse(true);
         try {
+            // 1. Save Associations
             const updatePromises = hseQuestions.map(q =>
                 supabase
                     .from('form_questions')
@@ -564,12 +604,47 @@ export const Formularios: React.FC = () => {
                     .eq('id', q.id)
             );
 
+            // 2. Save Rules
+            // Handle Deletions
+            if (deletedRuleIds.length > 0) {
+                await supabase.from('form_hse_rules').delete().in('id', deletedRuleIds);
+            }
+            // Handle Upserts (New and Updated)
+            // Separate New vs Existing
+            const newRules = hseRules.filter(r => r.id < 0).map(({ id, ...rest }) => rest);
+            const existingRules = hseRules.filter(r => r.id > 0);
+
+            // Handle Inserts
+            if (newRules.length > 0) {
+                const { error: insertError } = await supabase
+                    .from('form_hse_rules')
+                    .insert(newRules);
+                if (insertError) throw insertError;
+            }
+
+            // Handle Updates
+            if (existingRules.length > 0) {
+                const rulesUpdatePromises = existingRules.map(r =>
+                    supabase
+                        .from('form_hse_rules')
+                        .update({
+                            min_val: r.min_val,
+                            max_val: r.max_val,
+                            texto_personalizado: r.texto_personalizado
+                        })
+                        .eq('id', r.id)
+                );
+                await Promise.all(rulesUpdatePromises);
+            }
+
             await Promise.all(updatePromises);
-            alert("Associações salvas com sucesso!");
+
+            alert("Configurações salvas com sucesso!");
+            setDeletedRuleIds([]);
             setHseModalOpen(false);
         } catch (err) {
-            console.error("Error saving HSE associations:", err);
-            alert("Erro ao salvar associações.");
+            console.error("Error saving HSE config:", err);
+            alert("Erro ao salvar configurações.");
         } finally {
             setLoadingHse(false);
         }
@@ -935,8 +1010,9 @@ export const Formularios: React.FC = () => {
     const [loadingStats, setLoadingStats] = useState(false);
 
     // New Analytics State
-    const [analyticsTab, setAnalyticsTab] = useState<'overview' | 'individual'>('overview');
+    const [analyticsTab, setAnalyticsTab] = useState<'overview' | 'individual' | 'diagnostic'>('overview');
     const [selectedRespondent, setSelectedRespondent] = useState<string | null>(null); // Groups by responder_identifier + timestamp key
+    const [diagnosticData, setDiagnosticData] = useState<HSEDiagnosticItem[]>([]);
     // isCompactMode state removed - enforced to true by default props passing
 
 
@@ -953,6 +1029,34 @@ export const Formularios: React.FC = () => {
             .eq('form_id', form.id)
             .order('question_order');
         setQuestions(qData || []);
+
+        // Fetch Diagnostic Data if HSE form
+        if (form.hse_id) {
+            console.log('Fetching diagnostic data for HSE Form ID:', form.id);
+
+            // Fetch Dimensions metadata (for is_positive check)
+            const { data: dims } = await supabase.from('hse_dimensions').select('*');
+            if (dims) setHseDimensions(dims);
+
+            const { data: dd, error: ddError } = await supabase
+                .from('view_hse_analise_itens')
+                .select('*')
+                .eq('form_id', form.id);
+
+            if (ddError) {
+                console.error('Error fetching diagnostic data:', ddError);
+                setDiagnosticData([]);
+            } else if (dd) {
+                console.log('Diagnostic Data Loaded:', dd);
+                setDiagnosticData(dd as HSEDiagnosticItem[]);
+            } else {
+                console.log('No diagnostic data found.');
+                setDiagnosticData([]);
+            }
+        } else {
+            console.log('Not an HSE form (no hse_id)');
+            setDiagnosticData([]);
+        }
 
         // Fetch Answers
         const { data: aData } = await supabase
@@ -1373,7 +1477,8 @@ export const Formularios: React.FC = () => {
                 );
             }
 
-            // LIST VIEW
+
+
             return (
                 <div className="space-y-4 animate-in fade-in duration-300">
                     <div className="flex justify-between items-center mb-4">
@@ -1387,6 +1492,7 @@ export const Formularios: React.FC = () => {
                                 Nenhuma resposta registrada ainda.
                             </div>
                         ) : (
+                            // ... (List View Content) ...
                             <div className="divide-y divide-slate-100">
                                 {respondents.map((r) => (
                                     <div
@@ -1425,6 +1531,102 @@ export const Formularios: React.FC = () => {
             );
         };
 
+        // RENDER DIAGNOSTIC
+        const renderDiagnostic = () => {
+            console.log('Rendering Diagnostic Tab. Data length:', diagnosticData?.length);
+            if (!Array.isArray(diagnosticData)) return null;
+
+            // Group by Dimensions (using dimensao_id)
+            const grouped = diagnosticData.reduce((acc, item) => {
+                const dimId = item.dimensao_id;
+                if (!acc[dimId]) acc[dimId] = [];
+                acc[dimId].push(item);
+                return acc;
+            }, {} as Record<number, HSEDiagnosticItem[]>);
+
+            if (diagnosticData.length === 0) {
+                return (
+                    <div className="p-12 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">
+                        <p className="font-medium text-lg">Sem dados de diagnóstico</p>
+                        <p className="text-sm">Verifique se o formulário é HSE e se há respostas.</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-6 max-w-4xl mx-auto animate-in fade-in duration-300">
+                    {Object.entries(grouped).map(([dimId, items]) => {
+                        const typedItems = items as HSEDiagnosticItem[];
+                        const firstItem = typedItems[0];
+                        const dimName = firstItem.dimensao;
+
+                        // Find dimension metadata for is_positive logic
+                        const dimMeta = hseDimensions.find(d => d.id === Number(dimId));
+                        const isPositive = dimMeta?.is_positive;
+
+                        // Calculate Dimension Average
+                        const dimAverage = typedItems.reduce((sum, i) => sum + (Number(i.media_valor) || 0), 0) / typedItems.length;
+
+                        const getRiskAnalysis = (score: number, isPos: boolean | undefined) => {
+                            if (isPos) {
+                                // INVERTED: Higher score = Lower Risk
+                                if (score >= 3) return { label: 'baixo', color: 'text-green-700 bg-green-50 border-green-200' };
+                                if (score >= 2) return { label: 'médio', color: 'text-cyan-700 bg-cyan-50 border-cyan-200' };
+                                if (score >= 1) return { label: 'moderado', color: 'text-amber-700 bg-amber-50 border-amber-200' };
+                                return { label: 'alto', color: 'text-red-700 bg-red-50 border-red-200' };
+                            } else {
+                                // STANDARD: Lower score = Lower Risk
+                                if (score <= 1) return { label: 'baixo', color: 'text-green-700 bg-green-50 border-green-200' };
+                                if (score <= 2) return { label: 'médio', color: 'text-cyan-700 bg-cyan-50 border-cyan-200' };
+                                if (score <= 3) return { label: 'moderado', color: 'text-amber-700 bg-amber-50 border-amber-200' };
+                                return { label: 'alto', color: 'text-red-700 bg-red-50 border-red-200' };
+                            }
+                        };
+
+                        const analysis = getRiskAnalysis(dimAverage, isPositive);
+
+                        return (
+                            <div key={dimId} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                                <div className="p-5 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                                    <div>
+                                        <div className="flex items-center gap-3 mb-1">
+                                            <h3 className="text-lg font-bold text-slate-800">Dimensão {dimName}</h3>
+                                            <span className={`text-[11px] px-2 py-0.5 rounded-full border font-bold uppercase tracking-wide ${analysis.color}`}>
+                                                {analysis.label} risco de exposição ({dimAverage.toFixed(2)})
+                                            </span>
+                                        </div>
+                                        <p className={`text-xs font-semibold ${isPositive ? 'text-blue-600' : 'text-orange-600'}`}>
+                                            {isPositive ? 'Quanto MAIOR, melhor' : 'Quanto MENOR, melhor'}
+                                        </p>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="block text-2xl font-bold text-slate-800">{dimAverage.toFixed(2)}</span>
+                                        <span className="text-xs text-slate-400 font-medium uppercase">Média Geral</span>
+                                    </div>
+                                </div>
+                                <div className="divide-y divide-slate-100">
+                                    {typedItems.map((item, idx) => (
+                                        <div key={idx} className="p-4 hover:bg-slate-50 transition-colors">
+                                            <div className="flex flex-col gap-1">
+                                                <p className="font-medium text-slate-700">
+                                                    {item.texto_pergunta}
+                                                </p>
+                                                <p className="text-sm text-slate-600">
+                                                    {item.texto_risco_completo}: <span className="font-bold">({Number(item.media_valor || 0).toFixed(2)})</span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        };
+
+
+
         return (
             <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <header className="mb-8">
@@ -1453,17 +1655,28 @@ export const Formularios: React.FC = () => {
                         >
                             Respostas Individuais
                         </button>
+                        <button
+                            onClick={() => setAnalyticsTab('diagnostic')}
+                            className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${analyticsTab === 'diagnostic' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Diagnóstico por dimensões
+                        </button>
+
                     </div>
                 </header>
 
-                {loadingStats ? (
-                    <div className="flex-1 flex justify-center items-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>
-                ) : (
-                    <div className="overflow-y-auto pb-20">
-                        {analyticsTab === 'overview' ? renderOverview() : renderIndividual()}
-                    </div>
-                )}
-            </div>
+                {
+                    loadingStats ? (
+                        <div className="flex-1 flex justify-center items-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>
+                    ) : (
+                        <div className="overflow-y-auto pb-20">
+                            {analyticsTab === 'overview' ? renderOverview() :
+                                analyticsTab === 'individual' ? renderIndividual() :
+                                    analyticsTab === 'diagnostic' ? renderDiagnostic() : null}
+                        </div>
+                    )
+                }
+            </div >
         );
     }
 
@@ -1810,11 +2023,26 @@ export const Formularios: React.FC = () => {
                         </Button>
                     </div>
 
+                    <div className="px-4 mb-4 flex gap-2 border-b border-slate-200">
+                        <button
+                            onClick={() => setHseActiveTab('associations')}
+                            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${hseActiveTab === 'associations' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Associações
+                        </button>
+                        <button
+                            onClick={() => setHseActiveTab('rules')}
+                            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${hseActiveTab === 'rules' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Personalização de textos
+                        </button>
+                    </div>
+
                     {loadingHse ? (
                         <div className="flex-1 flex justify-center items-center">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                         </div>
-                    ) : (
+                    ) : hseActiveTab === 'associations' ? (
                         <DragDropContext onDragEnd={(result) => {
                             if (!result.destination) return;
                             const { source, destination, draggableId } = result;
@@ -2021,10 +2249,73 @@ export const Formularios: React.FC = () => {
                                 </div>
                             </div>
                         </DragDropContext>
+                    ) : (
+                        // RULES TAB
+                        <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+                            <div className="space-y-6 max-w-4xl mx-auto">
+                                {hseDimensions.map(dim => {
+                                    const dimRules = hseRules.filter(r => r.dimension_id === dim.id);
+                                    return (
+                                        <div key={dim.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                                            <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
+                                                <h3 className="text-lg font-bold text-slate-700">{dim.name}</h3>
+                                                <Button size="sm" variant="outline" onClick={() => handleAddRule(dim.id)}>
+                                                    <Plus size={14} /> Adicionar Regra
+                                                </Button>
+                                            </div>
+
+                                            {dimRules.length === 0 ? (
+                                                <p className="text-center text-slate-400 py-4 italic text-sm">Nenhuma regra definida para esta dimensão.</p>
+                                            ) : (
+                                                <div className="space-y-3">
+                                                    {dimRules.map((rule, idx) => (
+                                                        <div key={rule.id} className="flex flex-col sm:flex-row gap-3 items-start sm:items-center bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                                            <div className="flex items-center gap-2 text-sm text-slate-600 shrink-0">
+                                                                <span>De</span>
+                                                                <input
+                                                                    type="number"
+                                                                    className="w-20 px-2 py-1 border rounded bg-white text-center"
+                                                                    value={rule.min_val}
+                                                                    step="0.1"
+                                                                    onChange={(e) => handleUpdateRule(rule.id, 'min_val', Number(e.target.value))}
+                                                                />
+                                                                <span>até</span>
+                                                                <input
+                                                                    type="number"
+                                                                    className="w-20 px-2 py-1 border rounded bg-white text-center"
+                                                                    value={rule.max_val}
+                                                                    step="0.1"
+                                                                    onChange={(e) => handleUpdateRule(rule.id, 'max_val', Number(e.target.value))}
+                                                                />
+                                                            </div>
+                                                            <div className="flex-1 w-full">
+                                                                <input
+                                                                    type="text"
+                                                                    className="w-full px-3 py-1.5 border rounded bg-white text-sm"
+                                                                    placeholder="Texto a ser exibido..."
+                                                                    value={rule.texto_personalizado}
+                                                                    onChange={(e) => handleUpdateRule(rule.id, 'texto_personalizado', e.target.value)}
+                                                                />
+                                                            </div>
+                                                            <button
+                                                                onClick={() => handleDeleteRule(rule.id)}
+                                                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors shrink-0"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     )}
                 </div>
                 <div className="flex justify-end pt-4 border-t border-slate-200 mt-4">
-                    <Button onClick={handleSaveHSEAssociations}>
+                    <Button onClick={handleSaveHSEConfig}>
                         <Save size={18} />
                         Salvar Alterações
                     </Button>

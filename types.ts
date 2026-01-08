@@ -79,6 +79,14 @@ export interface HSEDimension {
   risk_label: string;
 }
 
+export interface HSERule {
+  id: number;
+  dimension_id: number;
+  min_val: number;
+  max_val: number;
+  texto_personalizado: string;
+}
+
 export interface FormQuestion {
   id: number;
   form_id: number;
@@ -120,4 +128,15 @@ export interface FormAnswer {
   answer_text?: string;
   answer_number?: number;
   created_at: string;
+}
+
+export interface HSEDiagnosticItem {
+  form_id: number;
+  question_id: number;
+  numero_pergunta: number;
+  texto_pergunta: string;
+  dimensao: string;
+  dimensao_id: number;
+  media_valor: number;
+  texto_risco_completo: string;
 }
