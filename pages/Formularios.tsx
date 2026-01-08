@@ -6,7 +6,7 @@ import {
     MoreVertical, Edit2, Trash2, X, Check, Copy, ExternalLink,
     ChevronUp, ChevronDown, List, Type, MessageSquare, Star,
     User, Users, Calendar, Clock, ArrowLeft, ChevronRight, Split, Layout, Minimize2, AlignJustify, GripVertical,
-    Building2, MapPin, Briefcase, Filter, Download, Play, Pause, Settings, Save, CheckCircle, AlertCircle, Send, Hash, Info
+    Building2, MapPin, Briefcase, Filter, Download, Play, Pause, Settings, Save, CheckCircle, AlertCircle, Send, Hash, Info, ThumbsUp, ThumbsDown
 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { Form, FormQuestion, FormAnswer, HSEDimension, QuestionType, HSERule, HSEDiagnosticItem } from '../types';
@@ -423,6 +423,7 @@ const QuestionEditorItem = React.memo(({
 
 export const Formularios: React.FC = () => {
     const [forms, setForms] = useState<Form[]>([]);
+
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -1010,9 +1011,11 @@ export const Formularios: React.FC = () => {
     const [loadingStats, setLoadingStats] = useState(false);
 
     // New Analytics State
-    const [analyticsTab, setAnalyticsTab] = useState<'overview' | 'individual' | 'diagnostic'>('overview');
+    const [analyticsTab, setAnalyticsTab] = useState<'overview' | 'individual' | 'diagnostic' | 'interpretative'>('overview');
     const [selectedRespondent, setSelectedRespondent] = useState<string | null>(null); // Groups by responder_identifier + timestamp key
     const [diagnosticData, setDiagnosticData] = useState<HSEDiagnosticItem[]>([]);
+    const [expandedInterpretativeDims, setExpandedInterpretativeDims] = useState<Set<number>>(new Set());
+
     // isCompactMode state removed - enforced to true by default props passing
 
 
@@ -1035,8 +1038,34 @@ export const Formularios: React.FC = () => {
             console.log('Fetching diagnostic data for HSE Form ID:', form.id);
 
             // Fetch Dimensions metadata (for is_positive check)
-            const { data: dims } = await supabase.from('hse_dimensions').select('*');
-            if (dims) setHseDimensions(dims);
+            // Fetch Dimensions metadata (for is_positive check) from form-specific config
+            const { data: dims } = await supabase
+                .from('form_hse_dimensions')
+                .select('*');
+
+            if (dims) {
+                // Map to match HSEDimension interface expectation (id = dimension_id)
+                const mappedDims = dims.map((d: any) => ({
+                    ...d,
+                    id: d.id, // Strictly use PK as Rules reference form_hse_dimensions(id)
+                    is_positive: d.is_positive
+                }));
+                setHseDimensions(mappedDims);
+
+                // Fetch Rules for these dimensions
+                const dimIds = mappedDims.map((d: any) => d.id);
+                if (dimIds.length > 0) {
+                    const { data: rules, error: rulesError } = await supabase
+                        .from('form_hse_rules')
+                        .select('*')
+                        .in('dimension_id', dimIds);
+
+                    if (rulesError) console.error('Error fetching HSE rules for stats:', rulesError);
+                    setHseRules(rules || []);
+                } else {
+                    setHseRules([]);
+                }
+            }
 
             const { data: dd, error: ddError } = await supabase
                 .from('view_hse_analise_itens')
@@ -1627,6 +1656,276 @@ export const Formularios: React.FC = () => {
 
 
 
+
+
+        const toggleInterpretativeDim = (dimId: number) => {
+            const newSet = new Set(expandedInterpretativeDims);
+            if (newSet.has(dimId)) {
+                newSet.delete(dimId);
+            } else {
+                newSet.add(dimId);
+            }
+            setExpandedInterpretativeDims(newSet);
+        };
+
+        const handleSaveRuleFeedback = async (ruleId: number, newFeedback: string) => {
+            try {
+                const { error } = await supabase
+                    .from('form_hse_rules')
+                    .update({ feedback_interpretativo: newFeedback })
+                    .eq('id', ruleId);
+
+                if (error) throw error;
+
+                // Update local state
+                setHseRules(prev => prev.map(r => r.id === ruleId ? { ...r, feedback_interpretativo: newFeedback } : r));
+                alert('Feedback salvo!');
+            } catch (err) {
+                console.error('Error saving feedback:', err);
+                alert('Erro ao salvar feedback');
+            }
+        };
+
+
+
+        // RENDER INTERPRETATIVE ANALYSIS
+        const renderInterpretative = () => {
+            if (!Array.isArray(diagnosticData) || diagnosticData.length === 0) return (
+                <div className="p-12 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">
+                    <p className="font-medium text-lg">Sem dados para análise</p>
+                </div>
+            );
+
+            // Group by Dimension and Calculate Stats
+            const dimStats = Object.entries(diagnosticData.reduce((acc, item) => {
+                const dimId = item.dimensao_id;
+                if (!acc[dimId]) acc[dimId] = [];
+                acc[dimId].push(item);
+                return acc;
+            }, {} as Record<number, HSEDiagnosticItem[]>)).map(([dimId, items]) => {
+                const typedItems = items as HSEDiagnosticItem[];
+                const first = typedItems[0];
+                const average = typedItems.reduce((sum, i) => sum + (Number(i.media_valor) || 0), 0) / typedItems.length;
+                const dimMeta = hseDimensions.find(d => d.id === Number(dimId));
+                const isPositive = dimMeta?.is_positive;
+
+                // Calculate Performance (Higher is better for sorting)
+                // If positive: 4.0 is better than 1.0
+                // If negative: 1.0 is better than 4.0 (so invert: 5 - 1 = 4, 5 - 4 = 1)
+                const performance = isPositive ? average : (5 - average);
+
+                return {
+                    id: dimId,
+                    name: first.dimensao,
+                    average,
+                    isPositive,
+                    performance
+                };
+            });
+
+            // Sort by Performance Descending
+            dimStats.sort((a, b) => b.performance - a.performance);
+
+            // Split into Strong (Top 50%) and Weak (Bottom 50%)
+            const half = Math.ceil(dimStats.length / 2);
+            const topHalf = dimStats.slice(0, half);
+            const bottomHalf = dimStats.slice(half);
+
+            return (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in duration-500 relative">
+                    {/* STRENGTHS */}
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-2 mb-4">
+                            <div className="p-2 bg-green-100 text-green-600 rounded-lg">
+                                <ThumbsUp size={24} />
+                            </div>
+                            <h2 className="text-xl font-bold text-slate-800">Pontos Fortes</h2>
+                        </div>
+
+                        <div className="space-y-3">
+                            {topHalf.map(dim => {
+                                const isExpanded = expandedInterpretativeDims.has(Number(dim.id));
+                                const dimRules = hseRules.filter(r => r.dimension_id === Number(dim.id)).sort((a, b) => a.min_val - b.min_val);
+
+                                return (
+                                    <div
+                                        key={dim.id}
+                                        className="bg-white rounded-xl border border-green-100 shadow-sm overflow-hidden transition-all group hover:shadow-md"
+                                    >
+                                        <div
+                                            onClick={() => toggleInterpretativeDim(Number(dim.id))}
+                                            className="p-4 flex justify-between items-center cursor-pointer hover:bg-green-50/50"
+                                        >
+                                            <div>
+                                                <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                                                    {dim.name}
+                                                    {isExpanded ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                                                </h3>
+                                                <p className="text-xs text-slate-500 capitalize">
+                                                    {dim.isPositive ? 'Maior é melhor' : 'Menor é melhor'}
+                                                </p>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-lg font-black text-green-600">{dim.average.toFixed(2)}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Inline Rules Editor */}
+                                        {isExpanded && (
+                                            <div className="p-4 bg-slate-50 border-t border-green-100 animate-in slide-in-from-top-2">
+                                                <h4 className="text-xs font-bold uppercase text-slate-400 mb-3">Regras de Interpretação</h4>
+                                                {dimRules.length === 0 ? (
+                                                    <p className="text-sm text-slate-400 italic">Nenhuma regra configurada.</p>
+                                                ) : (
+                                                    <div className="space-y-6">
+                                                        {dimRules.map(rule => (
+                                                            <div key={rule.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
+                                                                <div className="flex justify-between items-center mb-3">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-sm font-semibold text-slate-700">
+                                                                            De {rule.min_val} a {rule.max_val}
+                                                                        </span>
+                                                                    </div>
+                                                                    <span className="px-2 py-0.5 rounded-full bg-white text-slate-500 text-[10px] uppercase font-bold tracking-wide border border-slate-200 shadow-sm">
+                                                                        {rule.texto_personalizado || 'Sem descrição'}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="space-y-3">
+                                                                    <textarea
+                                                                        id={`inline-feedback-${rule.id}`}
+                                                                        className="w-full p-3 text-sm bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-300 focus:border-slate-300 min-h-[80px] text-slate-600 placeholder:text-slate-400 resize-none transition-all shadow-sm"
+                                                                        defaultValue={rule.feedback_interpretativo || ''}
+                                                                        placeholder="Digite a análise interpretativa..."
+                                                                    />
+                                                                    <div className="flex justify-end">
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            className="h-8 gap-2 text-xs font-semibold text-slate-600 hover:text-slate-800 border-slate-200 hover:bg-white hover:border-slate-300 transition-all"
+                                                                            onClick={() => {
+                                                                                const el = document.getElementById(`inline-feedback-${rule.id}`) as HTMLTextAreaElement;
+                                                                                if (el) handleSaveRuleFeedback(rule.id, el.value);
+                                                                            }}
+                                                                        >
+                                                                            <Save size={14} />
+                                                                            Salvar
+                                                                        </Button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* WEAKNESSES */}
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-2 mb-4">
+                            <div className="p-2 bg-red-100 text-red-600 rounded-lg">
+                                <ThumbsDown size={24} />
+                            </div>
+                            <h2 className="text-xl font-bold text-slate-800">Pontos Fracos</h2>
+                        </div>
+
+                        <div className="space-y-3">
+                            {bottomHalf.map(dim => {
+                                const isExpanded = expandedInterpretativeDims.has(Number(dim.id));
+                                const dimRules = hseRules.filter(r => r.dimension_id === Number(dim.id)).sort((a, b) => a.min_val - b.min_val);
+
+                                return (
+                                    <div
+                                        key={dim.id}
+                                        className="bg-white rounded-xl border border-red-100 shadow-sm overflow-hidden transition-all group hover:shadow-md"
+                                    >
+                                        <div
+                                            onClick={() => toggleInterpretativeDim(Number(dim.id))}
+                                            className="p-4 flex justify-between items-center cursor-pointer hover:bg-red-50/50"
+                                        >
+                                            <div>
+                                                <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                                                    {dim.name}
+                                                    {isExpanded ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                                                </h3>
+                                                <p className="text-xs text-slate-500 capitalize">
+                                                    {dim.isPositive ? 'Maior é melhor' : 'Menor é melhor'}
+                                                </p>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-lg font-black text-red-600">{dim.average.toFixed(2)}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Inline Rules Editor */}
+                                        {isExpanded && (
+                                            <div className="p-4 bg-slate-50 border-t border-red-100 animate-in slide-in-from-top-2">
+                                                <h4 className="text-xs font-bold uppercase text-slate-400 mb-3">Regras de Interpretação</h4>
+                                                {dimRules.length === 0 ? (
+                                                    <p className="text-sm text-slate-400 italic">Nenhuma regra configurada.</p>
+                                                ) : (
+                                                    <div className="space-y-6">
+                                                        {dimRules.map(rule => (
+                                                            <div key={rule.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
+                                                                <div className="flex justify-between items-center mb-3">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-sm font-semibold text-slate-700">
+                                                                            De {rule.min_val} a {rule.max_val}
+                                                                        </span>
+                                                                    </div>
+                                                                    <span className="px-2 py-0.5 rounded-full bg-white text-slate-500 text-[10px] uppercase font-bold tracking-wide border border-slate-200 shadow-sm">
+                                                                        {rule.texto_personalizado || 'Sem descrição'}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="space-y-3">
+                                                                    <textarea
+                                                                        id={`inline-feedback-${rule.id}`}
+                                                                        className="w-full p-3 text-sm bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-300 focus:border-slate-300 min-h-[80px] text-slate-600 placeholder:text-slate-400 resize-none transition-all shadow-sm"
+                                                                        defaultValue={rule.feedback_interpretativo || ''}
+                                                                        placeholder="Digite a análise interpretativa..."
+                                                                    />
+                                                                    <div className="flex justify-end">
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            className="h-8 gap-2 text-xs font-semibold text-slate-600 hover:text-slate-800 border-slate-200 hover:bg-white hover:border-slate-300 transition-all"
+                                                                            onClick={() => {
+                                                                                const el = document.getElementById(`inline-feedback-${rule.id}`) as HTMLTextAreaElement;
+                                                                                if (el) handleSaveRuleFeedback(rule.id, el.value);
+                                                                            }}
+                                                                        >
+                                                                            <Save size={14} />
+                                                                            Salvar
+                                                                        </Button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+
+
+                </div>
+            );
+        };
+
+
+
+
+
+
         return (
             <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <header className="mb-8">
@@ -1661,6 +1960,12 @@ export const Formularios: React.FC = () => {
                         >
                             Diagnóstico por dimensões
                         </button>
+                        <button
+                            onClick={() => setAnalyticsTab('interpretative')}
+                            className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${analyticsTab === 'interpretative' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Análise Interpretativa
+                        </button>
 
                     </div>
                 </header>
@@ -1672,7 +1977,8 @@ export const Formularios: React.FC = () => {
                         <div className="overflow-y-auto pb-20">
                             {analyticsTab === 'overview' ? renderOverview() :
                                 analyticsTab === 'individual' ? renderIndividual() :
-                                    analyticsTab === 'diagnostic' ? renderDiagnostic() : null}
+                                    analyticsTab === 'diagnostic' ? renderDiagnostic() :
+                                        analyticsTab === 'interpretative' ? renderInterpretative() : null}
                         </div>
                     )
                 }
@@ -1681,6 +1987,7 @@ export const Formularios: React.FC = () => {
     }
 
     // LIST VIEW (Default)
+
     return (
         <div className="h-full flex flex-col animate-in fade-in duration-500">
             <header className="flex justify-between items-center mb-8">
@@ -2324,3 +2631,8 @@ export const Formularios: React.FC = () => {
         </div>
     );
 };
+export default Formularios;
+
+
+
+
