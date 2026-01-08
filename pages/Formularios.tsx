@@ -419,6 +419,58 @@ const QuestionEditorItem = React.memo(({
     );
 }); // Removed custom comparator to allow safe shallow comparison including isCompact prop
 
+/* --- Scroll To Top Data --- */
+/* --- Scroll To Top Data --- */
+const ScrollToTopButton = () => {
+    const [visible, setVisible] = useState(false);
+
+    useEffect(() => {
+        const handleScroll = () => {
+            const reportContainer = document.getElementById('report-scroll-container');
+            const containerScroll = reportContainer ? reportContainer.scrollTop : 0;
+            const windowScroll = window.scrollY;
+
+            // Check if either is scrolling. Sometimes one is 0 while other moves.
+            setVisible(containerScroll > 100 || windowScroll > 100);
+        };
+
+        const reportContainer = document.getElementById('report-scroll-container');
+        if (reportContainer) {
+            reportContainer.addEventListener('scroll', handleScroll);
+        }
+        window.addEventListener('scroll', handleScroll);
+
+        // Initial check
+        handleScroll();
+
+        return () => {
+            if (reportContainer) reportContainer.removeEventListener('scroll', handleScroll);
+            window.removeEventListener('scroll', handleScroll);
+        };
+    }, []);
+
+    const scrollToTop = () => {
+        const reportContainer = document.getElementById('report-scroll-container');
+        if (reportContainer) {
+            reportContainer.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    if (!visible) return null;
+
+    return (
+        <button
+            onClick={scrollToTop}
+            className="fixed bottom-8 right-8 p-2 text-slate-600 hover:text-indigo-600 hover:-translate-y-1 transition-all duration-300 z-[99999] group animate-in fade-in slide-in-from-bottom-4 cursor-pointer"
+            title="Voltar ao topo"
+            type="button"
+        >
+            <ChevronUp size={36} className="stroke-[3px] drop-shadow-sm filter" />
+        </button>
+    );
+};
+
 /* --- Main Component --- */
 
 export const Formularios: React.FC = () => {
@@ -1583,73 +1635,106 @@ export const Formularios: React.FC = () => {
             }
 
             return (
-                <div className="space-y-6 max-w-4xl mx-auto animate-in fade-in duration-300">
-                    {Object.entries(grouped).map(([dimId, items]) => {
-                        const typedItems = items as HSEDiagnosticItem[];
-                        const firstItem = typedItems[0];
-                        const dimName = firstItem.dimensao;
+                <div className="animate-in fade-in duration-300">
+                    <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
+                        {/* Sidebar Index */}
+                        {/* Main Content */}
+                        <div className="lg:col-span-3 space-y-6 order-first">
+                            {Object.entries(grouped).map(([dimId, items]) => {
+                                const typedItems = items as HSEDiagnosticItem[];
+                                const firstItem = typedItems[0];
+                                const dimName = firstItem.dimensao;
 
-                        // Find dimension metadata for is_positive logic
-                        const dimMeta = hseDimensions.find(d => d.id === Number(dimId));
-                        const isPositive = dimMeta?.is_positive;
+                                // Find dimension metadata for is_positive logic
+                                const dimMeta = hseDimensions.find(d => d.id === Number(dimId));
+                                const isPositive = dimMeta?.is_positive;
 
-                        // Calculate Dimension Average
-                        const dimAverage = typedItems.reduce((sum, i) => sum + (Number(i.media_valor) || 0), 0) / typedItems.length;
+                                // Calculate Dimension Average
+                                const dimAverage = typedItems.reduce((sum, i) => sum + (Number(i.media_valor) || 0), 0) / typedItems.length;
 
-                        const getRiskAnalysis = (score: number, isPos: boolean | undefined) => {
-                            if (isPos) {
-                                // INVERTED: Higher score = Lower Risk
-                                if (score >= 3) return { label: 'baixo', color: 'text-green-700 bg-green-50 border-green-200' };
-                                if (score >= 2) return { label: 'médio', color: 'text-cyan-700 bg-cyan-50 border-cyan-200' };
-                                if (score >= 1) return { label: 'moderado', color: 'text-amber-700 bg-amber-50 border-amber-200' };
-                                return { label: 'alto', color: 'text-red-700 bg-red-50 border-red-200' };
-                            } else {
-                                // STANDARD: Lower score = Lower Risk
-                                if (score <= 1) return { label: 'baixo', color: 'text-green-700 bg-green-50 border-green-200' };
-                                if (score <= 2) return { label: 'médio', color: 'text-cyan-700 bg-cyan-50 border-cyan-200' };
-                                if (score <= 3) return { label: 'moderado', color: 'text-amber-700 bg-amber-50 border-amber-200' };
-                                return { label: 'alto', color: 'text-red-700 bg-red-50 border-red-200' };
-                            }
-                        };
+                                const getRiskAnalysis = (score: number, isPos: boolean | undefined) => {
+                                    if (isPos) {
+                                        // INVERTED: Higher score = Lower Risk
+                                        if (score >= 3) return { label: 'baixo', color: 'text-green-700 bg-green-50 border-green-200' };
+                                        if (score >= 2) return { label: 'médio', color: 'text-cyan-700 bg-cyan-50 border-cyan-200' };
+                                        if (score >= 1) return { label: 'moderado', color: 'text-amber-700 bg-amber-50 border-amber-200' };
+                                        return { label: 'alto', color: 'text-red-700 bg-red-50 border-red-200' };
+                                    } else {
+                                        // STANDARD: Lower score = Lower Risk
+                                        if (score <= 1) return { label: 'baixo', color: 'text-green-700 bg-green-50 border-green-200' };
+                                        if (score <= 2) return { label: 'médio', color: 'text-cyan-700 bg-cyan-50 border-cyan-200' };
+                                        if (score <= 3) return { label: 'moderado', color: 'text-amber-700 bg-amber-50 border-amber-200' };
+                                        return { label: 'alto', color: 'text-red-700 bg-red-50 border-red-200' };
+                                    }
+                                };
 
-                        const analysis = getRiskAnalysis(dimAverage, isPositive);
+                                const analysis = getRiskAnalysis(dimAverage, isPositive);
 
-                        return (
-                            <div key={dimId} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                                <div className="p-5 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-                                    <div>
-                                        <div className="flex items-center gap-3 mb-1">
-                                            <h3 className="text-lg font-bold text-slate-800">Dimensão {dimName}</h3>
-                                            <span className={`text-[11px] px-2 py-0.5 rounded-full border font-bold uppercase tracking-wide ${analysis.color}`}>
-                                                {analysis.label} risco de exposição ({dimAverage.toFixed(2)})
-                                            </span>
-                                        </div>
-                                        <p className={`text-xs font-semibold ${isPositive ? 'text-blue-600' : 'text-orange-600'}`}>
-                                            {isPositive ? 'Quanto MAIOR, melhor' : 'Quanto MENOR, melhor'}
-                                        </p>
-                                    </div>
-                                    <div className="text-right">
-                                        <span className="block text-2xl font-bold text-slate-800">{dimAverage.toFixed(2)}</span>
-                                        <span className="text-xs text-slate-400 font-medium uppercase">Média Geral</span>
-                                    </div>
-                                </div>
-                                <div className="divide-y divide-slate-100">
-                                    {typedItems.map((item, idx) => (
-                                        <div key={idx} className="p-4 hover:bg-slate-50 transition-colors">
-                                            <div className="flex flex-col gap-1">
-                                                <p className="font-medium text-slate-700">
-                                                    {item.texto_pergunta}
-                                                </p>
-                                                <p className="text-sm text-slate-600">
-                                                    {item.texto_risco_completo}: <span className="font-bold">({Number(item.media_valor || 0).toFixed(2)})</span>
+                                return (
+                                    <div id={`dim-${dimId}`} key={dimId} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden scroll-mt-20">
+                                        <div className="p-5 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                                            <div>
+                                                <div className="flex items-center gap-3 mb-1">
+                                                    <h3 className="text-lg font-bold text-slate-800">Dimensão {dimName}</h3>
+                                                    <span className={`text-[11px] px-2 py-0.5 rounded-full border font-bold uppercase tracking-wide ${analysis.color}`}>
+                                                        {analysis.label} risco de exposição ({dimAverage.toFixed(2)})
+                                                    </span>
+                                                </div>
+                                                <p className={`text-xs font-semibold ${isPositive ? 'text-blue-600' : 'text-orange-600'}`}>
+                                                    {isPositive ? 'Quanto MAIOR, melhor' : 'Quanto MENOR, melhor'}
                                                 </p>
                                             </div>
+                                            <div className="text-right">
+                                                <span className="block text-2xl font-bold text-slate-800">{dimAverage.toFixed(2)}</span>
+                                                <span className="text-xs text-slate-400 font-medium uppercase">Média Geral</span>
+                                            </div>
                                         </div>
-                                    ))}
-                                </div>
+                                        <div className="divide-y divide-slate-100">
+                                            {typedItems.map((item, idx) => (
+                                                <div key={idx} className="p-4 hover:bg-slate-50 transition-colors">
+                                                    <div className="flex flex-col gap-1">
+                                                        <p className="font-medium text-slate-700">
+                                                            {item.texto_pergunta}
+                                                        </p>
+                                                        <p className="text-sm text-slate-600">
+                                                            {item.texto_risco_completo}: <span className="font-bold">({Number(item.media_valor || 0).toFixed(2)})</span>
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Sidebar Index */}
+                        <div className="lg:col-span-1">
+                            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm sticky top-4 max-h-[calc(100vh-200px)] overflow-y-auto">
+                                <h3 className="font-bold text-slate-700 text-sm uppercase mb-3 flex items-center gap-2">
+                                    <List size={16} /> Índice Rápido
+                                </h3>
+                                <ul className="space-y-1">
+                                    {Object.entries(grouped).map(([dimId, items]) => {
+                                        const dimName = (items as HSEDiagnosticItem[])[0].dimensao;
+                                        return (
+                                            <li key={dimId}>
+                                                <button
+                                                    onClick={() => {
+                                                        const el = document.getElementById(`dim-${dimId}`);
+                                                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                    }}
+                                                    className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-slate-50 rounded-lg transition-colors truncate"
+                                                >
+                                                    {dimName}
+                                                </button>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
                             </div>
-                        );
-                    })}
+                        </div>
+                    </div>
                 </div>
             );
         };
@@ -1668,21 +1753,21 @@ export const Formularios: React.FC = () => {
             setExpandedInterpretativeDims(newSet);
         };
 
-        const handleSaveRuleFeedback = async (ruleId: number, newFeedback: string) => {
+        const handleSaveRuleField = async (ruleId: number, field: 'feedback_interpretativo' | 'plano_acao_sugerido', value: string) => {
             try {
                 const { error } = await supabase
                     .from('form_hse_rules')
-                    .update({ feedback_interpretativo: newFeedback })
+                    .update({ [field]: value })
                     .eq('id', ruleId);
 
                 if (error) throw error;
 
                 // Update local state
-                setHseRules(prev => prev.map(r => r.id === ruleId ? { ...r, feedback_interpretativo: newFeedback } : r));
-                alert('Feedback salvo!');
+                setHseRules(prev => prev.map(r => r.id === ruleId ? { ...r, [field]: value } : r));
+                alert('Salvo com sucesso!');
             } catch (err) {
-                console.error('Error saving feedback:', err);
-                alert('Erro ao salvar feedback');
+                console.error(`Error saving ${field}:`, err);
+                alert('Erro ao salvar.');
             }
         };
 
@@ -1804,7 +1889,7 @@ export const Formularios: React.FC = () => {
                                                                             className="h-8 gap-2 text-xs font-semibold text-slate-600 hover:text-slate-800 border-slate-200 hover:bg-white hover:border-slate-300 transition-all"
                                                                             onClick={() => {
                                                                                 const el = document.getElementById(`inline-feedback-${rule.id}`) as HTMLTextAreaElement;
-                                                                                if (el) handleSaveRuleFeedback(rule.id, el.value);
+                                                                                if (el) handleSaveRuleField(rule.id, 'feedback_interpretativo', el.value);
                                                                             }}
                                                                         >
                                                                             <Save size={14} />
@@ -1895,7 +1980,7 @@ export const Formularios: React.FC = () => {
                                                                             className="h-8 gap-2 text-xs font-semibold text-slate-600 hover:text-slate-800 border-slate-200 hover:bg-white hover:border-slate-300 transition-all"
                                                                             onClick={() => {
                                                                                 const el = document.getElementById(`inline-feedback-${rule.id}`) as HTMLTextAreaElement;
-                                                                                if (el) handleSaveRuleFeedback(rule.id, el.value);
+                                                                                if (el) handleSaveRuleField(rule.id, 'feedback_interpretativo', el.value);
                                                                             }}
                                                                         >
                                                                             <Save size={14} />
@@ -1903,6 +1988,37 @@ export const Formularios: React.FC = () => {
                                                                         </Button>
                                                                     </div>
                                                                 </div>
+
+                                                                {/* Action Plan Section - Only for Moderate/High Risk */}
+                                                                {((dim.isPositive ? rule.max_val <= 2 : rule.min_val >= 2)) && (
+                                                                    <div className="pt-4 border-t border-slate-100">
+                                                                        <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">
+                                                                            Plano de Ação Sugerido
+                                                                        </label>
+                                                                        <div className="space-y-3">
+                                                                            <textarea
+                                                                                id={`inline-action-${rule.id}`}
+                                                                                className="w-full p-3 text-sm bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-300 focus:border-slate-300 min-h-[80px] text-slate-600 placeholder:text-slate-400 resize-none transition-all shadow-sm"
+                                                                                defaultValue={rule.plano_acao_sugerido || ''}
+                                                                                placeholder="Descreva as ações recomendadas para este nível de risco..."
+                                                                            />
+                                                                            <div className="flex justify-end">
+                                                                                <Button
+                                                                                    size="sm"
+                                                                                    variant="outline"
+                                                                                    className="h-8 gap-2 text-xs font-semibold text-slate-600 hover:text-slate-800 border-slate-200 hover:bg-white hover:border-slate-300 transition-all"
+                                                                                    onClick={() => {
+                                                                                        const el = document.getElementById(`inline-action-${rule.id}`) as HTMLTextAreaElement;
+                                                                                        if (el) handleSaveRuleField(rule.id, 'plano_acao_sugerido', el.value);
+                                                                                    }}
+                                                                                >
+                                                                                    <Save size={14} />
+                                                                                    Salvar Plano
+                                                                                </Button>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         ))}
                                                     </div>
@@ -1974,11 +2090,15 @@ export const Formularios: React.FC = () => {
                     loadingStats ? (
                         <div className="flex-1 flex justify-center items-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>
                     ) : (
-                        <div className="overflow-y-auto pb-20">
-                            {analyticsTab === 'overview' ? renderOverview() :
-                                analyticsTab === 'individual' ? renderIndividual() :
-                                    analyticsTab === 'diagnostic' ? renderDiagnostic() :
-                                        analyticsTab === 'interpretative' ? renderInterpretative() : null}
+                        <div className="flex-1 relative overflow-hidden">
+                            <div id="report-scroll-container" className="h-full overflow-y-auto pb-20 px-1">
+                                {analyticsTab === 'overview' ? renderOverview() :
+                                    analyticsTab === 'individual' ? renderIndividual() :
+                                        analyticsTab === 'diagnostic' ? renderDiagnostic() :
+                                            renderInterpretative()
+                                }
+                            </div>
+                            <ScrollToTopButton />
                         </div>
                     )
                 }

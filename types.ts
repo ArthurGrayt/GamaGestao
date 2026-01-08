@@ -85,6 +85,8 @@ export interface HSERule {
   min_val: number;
   max_val: number;
   texto_personalizado: string;
+  feedback_interpretativo?: string;
+  plano_acao_sugerido?: string;
 }
 
 export interface FormQuestion {
