@@ -542,22 +542,36 @@ export const Formularios: React.FC = () => {
         }
     };
 
-    const handleAssociateQuestion = async (questionId: number, dimensionId: number | null, numberInDim?: number) => {
+    const handleAssociateQuestion = (questionId: number, dimensionId: number | null, numberInDim?: number) => {
+        const updates: any = { hse_dimension_id: dimensionId };
+        if (numberInDim !== undefined) updates.hse_question_number = numberInDim;
+        if (dimensionId === null) updates.hse_question_number = null;
+
+        setHseQuestions(prev => prev.map(q => q.id === questionId ? { ...q, ...updates } : q));
+    };
+
+    const handleSaveHSEAssociations = async () => {
+        if (!currentHseForm) return;
+        setLoadingHse(true);
         try {
-            const updates: any = { hse_dimension_id: dimensionId };
-            if (numberInDim !== undefined) updates.hse_question_number = numberInDim;
+            const updatePromises = hseQuestions.map(q =>
+                supabase
+                    .from('form_questions')
+                    .update({
+                        hse_dimension_id: q.hse_dimension_id,
+                        hse_question_number: q.hse_question_number
+                    })
+                    .eq('id', q.id)
+            );
 
-            const { error } = await supabase
-                .from('form_questions')
-                .update(updates)
-                .eq('id', questionId);
-
-            if (error) throw error;
-
-            setHseQuestions(prev => prev.map(q => q.id === questionId ? { ...q, ...updates } : q));
+            await Promise.all(updatePromises);
+            alert("Associações salvas com sucesso!");
+            setHseModalOpen(false);
         } catch (err) {
-            console.error(err);
-            alert("Erro ao associar questão.");
+            console.error("Error saving HSE associations:", err);
+            alert("Erro ao salvar associações.");
+        } finally {
+            setLoadingHse(false);
         }
     };
 
@@ -2008,6 +2022,12 @@ export const Formularios: React.FC = () => {
                             </div>
                         </DragDropContext>
                     )}
+                </div>
+                <div className="flex justify-end pt-4 border-t border-slate-200 mt-4">
+                    <Button onClick={handleSaveHSEAssociations}>
+                        <Save size={18} />
+                        Salvar Alterações
+                    </Button>
                 </div>
             </Modal>
         </div>

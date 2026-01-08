@@ -405,6 +405,28 @@ export const FormularioPublico: React.FC = () => {
         const answersToInsert = questions.map(q => {
             if (q.question_type === 'section_break') return null;
             const val = answers[q.id];
+
+            // Map text answers to numbers if applicable
+            let answerNumber: number | null = null;
+            if (q.question_type === 'rating') {
+                answerNumber = Number(val);
+            } else {
+                const textToNumberMap: Record<string, number> = {
+                    'nunca': 0,
+                    'raramente': 1,
+                    'as vezes': 2,
+                    'frequentemente': 3,
+                    'sempre': 4
+                };
+                // Normalize: trim whitespace and convert to lowercase for robust matching
+                const valStr = String(val).trim().toLowerCase();
+
+                // Check if the normalized string exists in our map
+                if (Object.prototype.hasOwnProperty.call(textToNumberMap, valStr)) {
+                    answerNumber = textToNumberMap[valStr];
+                }
+            }
+
             return {
                 form_id: form.id,
                 question_id: q.id,
@@ -412,7 +434,7 @@ export const FormularioPublico: React.FC = () => {
                 unidade_colaborador: collaborator.unidade, // Unit ID
                 cargo: collaborator.cargo, // Role ID
                 answer_text: (q.question_type !== 'rating') ? String(val) : null,
-                answer_number: (q.question_type === 'rating') ? Number(val) : null,
+                answer_number: answerNumber,
             };
         }).filter(a => a !== null && answers[a.question_id] !== undefined);
 
