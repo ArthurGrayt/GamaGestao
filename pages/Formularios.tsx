@@ -1086,6 +1086,9 @@ export const Formularios: React.FC = () => {
     const [individualModalOpen, setIndividualModalOpen] = useState(false);
     const [selectedRespondentId, setSelectedRespondentId] = useState<string | null>(null);
 
+    // HSE Report Modal State
+    const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+
     // isCompactMode state removed - enforced to true by default props passing
 
 
@@ -1211,7 +1214,7 @@ export const Formularios: React.FC = () => {
                 console.log('Fetching collaborators for Unit ID:', form.unidade_id);
                 const { data: allUsers, error: usersError } = await supabase
                     .from('colaboradores')
-                    .select('id, nome, setor:setorid, cargo, unidade') // Using alias if supported or just mapping later
+                    .select('id, nome, setor, cargo, unidade, cargos(nome)')
                     .eq('unidade', form.unidade_id); // Filter by specific Unit
                 // .eq('active', true); // 'colaboradores' might not have active column, user requested 'real amount'
 
@@ -1424,9 +1427,14 @@ export const Formularios: React.FC = () => {
                 <div className="space-y-6 animate-in fade-in duration-300">
                     <div className="flex justify-between items-center">
                         <h2 className="text-lg font-bold text-slate-700">Visão Geral</h2>
-                        <Button variant="outline" size="sm" onClick={() => setIsHistoryModalOpen(true)} className="gap-2">
-                            <Clock size={14} /> Histórico de Respostas
-                        </Button>
+                        <div className="flex gap-2">
+                            <Button variant="outline" size="sm" onClick={() => setIsReportModalOpen(true)} className="gap-2">
+                                <FileText size={14} /> Visualizar Relatório HSE
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => setIsHistoryModalOpen(true)} className="gap-2">
+                                <Clock size={14} /> Histórico de Respostas
+                            </Button>
+                        </div>
                     </div>
 
                     {/* Compact Summary Cards - GRID COLS 4 to accommodate removal */}
@@ -1803,7 +1811,10 @@ export const Formularios: React.FC = () => {
                 return (
                     <div className="animate-in slide-in-from-right duration-300">
                         <div className="flex items-center gap-4 mb-6">
-                            <Button variant="outline" onClick={() => setSelectedRespondent(null)} className="px-3 gap-2">
+                            <Button variant="outline" onClick={() => {
+                                setSelectedRespondent(null);
+                                setAnalyticsTab('overview');
+                            }} className="px-3 gap-2">
                                 <ArrowLeft size={16} />
                                 Voltar para lista
                             </Button>
@@ -1872,6 +1883,9 @@ export const Formularios: React.FC = () => {
                 <div className="space-y-6 animate-in fade-in duration-300">
                     <div className="flex justify-between items-center">
                         <div />
+                        <Button variant="outline" size="sm" onClick={() => setIsReportModalOpen(true)} className="gap-2 text-xs">
+                            <FileText size={14} /> Visualizar Relatório HSE
+                        </Button>
                     </div>
 
                     {/* KPIs */}
@@ -1926,73 +1940,169 @@ export const Formularios: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                        <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-                            <h4 className="font-bold text-slate-700">Respostas Recentes</h4>
-                            <div className="relative w-full sm:w-64">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                                <input
-                                    type="text"
-                                    placeholder="Buscar colaborador..."
-                                    value={overviewSearch}
-                                    onChange={(e) => setOverviewSearch(e.target.value)}
-                                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
-                                />
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Respostas Recentes (2/3 Width) */}
+                        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+                                <h4 className="font-bold text-slate-700">Respostas Recentes</h4>
+                                <div className="relative w-full sm:w-64">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                    <input
+                                        type="text"
+                                        placeholder="Buscar colaborador..."
+                                        value={overviewSearch}
+                                        onChange={(e) => setOverviewSearch(e.target.value)}
+                                        className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                                    />
+                                </div>
+                            </div>
+                            {filteredRespondents.length === 0 ? (
+                                <div className="p-12 text-center text-slate-400">
+                                    <Users size={48} className="mx-auto mb-4 opacity-20" />
+                                    <p>Nenhuma resposta encontrada.</p>
+                                </div>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="bg-slate-50 text-slate-500 font-medium">
+                                            <tr>
+                                                <th className="px-6 py-3">Participante</th>
+                                                {showSector && <th className="px-6 py-3">Setor</th>}
+                                                <th className="px-6 py-3">Data Envio</th>
+                                                <th className="px-6 py-3 text-right">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {filteredRespondents.map((r, idx) => (
+                                                <tr key={idx} className="group hover:bg-slate-50 transition-colors">
+                                                    <td className="px-6 py-4 font-medium text-slate-800">
+                                                        <div>
+                                                            {r.name}
+                                                            <span className="block text-xs text-slate-400 font-mono mt-0.5">{r.identifier}</span>
+                                                        </div>
+                                                    </td>
+                                                    {showSector && (
+                                                        <td className="px-6 py-4 text-slate-600">
+                                                            {r.setor || '-'}
+                                                        </td>
+                                                    )}
+                                                    <td className="px-6 py-4 text-slate-500">
+                                                        {new Date(r.date).toLocaleString()}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-right">
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            onClick={() => {
+                                                                setAnalyticsTab('individual');
+                                                                setSelectedRespondent(r.id);
+                                                            }}
+                                                            className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                                        >
+                                                            Ver Detalhes
+                                                        </Button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Sector Breakdown Sidebar (1/3 Width) */}
+                        <div className="lg:col-span-1 space-y-6">
+                            {totalEmployees > 20 && sectorStats.length > 0 ? (
+                                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                                    <h4 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
+                                        <Users size={16} className="text-slate-400" />
+                                        Adesão por Setor
+                                    </h4>
+                                    <div className="space-y-3">
+                                        {sectorStats.map((stat, idx) => (
+                                            <div key={idx} className="flex justify-between items-center p-2 bg-slate-50 rounded-lg border border-slate-100">
+                                                <span className="text-xs font-medium text-slate-600 truncate mr-2" title={stat.name}>{stat.name}</span>
+                                                <span className="text-xs font-bold text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200">{stat.count}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 border-dashed text-center">
+                                    <p className="text-sm text-slate-400">Sem dados de setor suficientes.</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* HSE Report Modal */}
+                    <Modal
+                        isOpen={isReportModalOpen}
+                        onClose={() => setIsReportModalOpen(false)}
+                        title="Relatório de Avaliação Psicossocial (HSE-IT)"
+                        className="max-w-4xl"
+                    >
+                        <div className="bg-white p-8 rounded shadow-sm border border-slate-100 font-sans text-slate-800 leading-relaxed print:shadow-none print:border-none">
+                            {/* Header */}
+                            <div className="border-b border-blue-500 pb-4 mb-8">
+                                <h1 className="text-2xl font-bold text-slate-900 mb-2">Laudo de Levantamento dos Riscos Psicossociais</h1>
+                                <p className="text-sm italic text-slate-600">Ferramenta: Health and Safety Executive Indicator Tool (HSE-IT)</p>
+                            </div>
+
+                            {/* 1. Introdução */}
+                            <div className="mb-8">
+                                <h2 className="text-lg font-bold text-blue-800 mb-3">1. Introdução</h2>
+                                <p className="mb-4 text-justify">
+                                    Este laudo apresenta os resultados da avaliação psicossocial realizada com base no questionário HSE Indicator Tool (HSE-IT), que contempla 35 itens distribuídos em 7 dimensões: Demandas, Controle, Apoio da Chefia, Apoio dos Colegas, Relacionamentos, Cargo e Comunicação/Mudanças.
+                                </p>
+                                <p className="text-justify">
+                                    O objetivo é identificar os principais fatores de risco psicossocial que podem impactar o bem-estar, a saúde mental e a produtividade dos colaboradores, classificando os resultados em baixo, médio, moderado ou alto risco, de acordo com os parâmetros estabelecidos.
+                                </p>
+                            </div>
+
+                            {/* 2. Metodologia */}
+                            <div className="mb-8">
+                                <h2 className="text-lg font-bold text-blue-800 mb-3">2. Metodologia</h2>
+
+                                <div className="mb-6">
+                                    <p className="font-bold mb-2">Escala de respostas utilizada:</p>
+                                    <ul className="list-none space-y-1 pl-0">
+                                        <li>- (0) Nunca</li>
+                                        <li>- (1) Raramente</li>
+                                        <li>- (2) Às vezes</li>
+                                        <li>- (3) Frequentemente</li>
+                                        <li>- (4) Sempre</li>
+                                    </ul>
+                                </div>
+
+                                <div className="mb-6">
+                                    <p className="font-bold mb-2">Critério de análise:</p>
+                                    <ul className="list-none space-y-1 pl-0">
+                                        <li>- Dimensões Demandas e Relacionamentos → médias mais altas indicam maior risco.</li>
+                                        <li>- Demais dimensões (Controle, Apoio, Cargo, Comunicação/Mudanças) → médias mais baixas indicam maior risco.</li>
+                                    </ul>
+                                </div>
+
+                                <div>
+                                    <p className="font-bold mb-2">Classificação por média:</p>
+                                    <ul className="list-none space-y-1 pl-0 font-medium">
+                                        <li className="flex items-center gap-2">
+                                            - 0 a 1: <span className="bg-emerald-400 text-black px-1">baixo</span>
+                                        </li>
+                                        <li className="flex items-center gap-2">
+                                            - &gt;1 a 2: <span className="bg-cyan-400 text-black px-1">médio</span>
+                                        </li>
+                                        <li className="flex items-center gap-2">
+                                            - &gt;2 a 3: <span className="bg-yellow-300 text-black px-1">moderado</span>
+                                        </li>
+                                        <li className="flex items-center gap-2">
+                                            - &gt;3 a 4: <span className="bg-red-600 text-white px-1">alto</span>
+                                        </li>
+                                    </ul>
+                                </div>
                             </div>
                         </div>
-                        {filteredRespondents.length === 0 ? (
-                            <div className="p-12 text-center text-slate-400">
-                                <Users size={48} className="mx-auto mb-4 opacity-20" />
-                                <p>Nenhuma resposta encontrada.</p>
-                            </div>
-                        ) : (
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm text-left">
-                                    <thead className="bg-slate-50 text-slate-500 font-medium">
-                                        <tr>
-                                            <th className="px-6 py-3">Participante</th>
-                                            {showSector && <th className="px-6 py-3">Setor</th>}
-                                            <th className="px-6 py-3">Data Envio</th>
-                                            <th className="px-6 py-3 text-right">Ações</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {filteredRespondents.map((r, idx) => (
-                                            <tr key={idx} className="group hover:bg-slate-50 transition-colors">
-                                                <td className="px-6 py-4 font-medium text-slate-800">
-                                                    <div>
-                                                        {r.name}
-                                                        <span className="block text-xs text-slate-400 font-mono mt-0.5">{r.identifier}</span>
-                                                    </div>
-                                                </td>
-                                                {showSector && (
-                                                    <td className="px-6 py-4 text-slate-600">
-                                                        {r.setor || '-'}
-                                                    </td>
-                                                )}
-                                                <td className="px-6 py-4 text-slate-500">
-                                                    {new Date(r.date).toLocaleString()}
-                                                </td>
-                                                <td className="px-6 py-4 text-right">
-                                                    <Button
-                                                        size="sm"
-                                                        variant="outline"
-                                                        onClick={() => {
-                                                            setAnalyticsTab('individual');
-                                                            setSelectedRespondent(r.id);
-                                                        }}
-                                                        className="opacity-0 group-hover:opacity-100 transition-opacity"
-                                                    >
-                                                        Ver Detalhes
-                                                    </Button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </div>
+                    </Modal>
 
                     {/* Participation Modal */}
                     <Modal
@@ -2070,7 +2180,7 @@ export const Formularios: React.FC = () => {
                                     (() => {
                                         const pendingUsers = companyUsers
                                             .filter(u => !respondents.some(r => r.respondedorId === u.id))
-                                            .filter(u => u.nome.toLowerCase().includes(participationSearch.toLowerCase()));
+                                            .filter(u => (u.nome || '').toLowerCase().includes(participationSearch.toLowerCase()));
 
                                         if (pendingUsers.length === 0) {
                                             return (
@@ -2087,14 +2197,21 @@ export const Formularios: React.FC = () => {
                                                         <th className="px-4 py-3">Colaborador</th>
                                                         <th className="px-4 py-3">Setor</th>
                                                         <th className="px-4 py-3">Cargo</th>
+                                                        <th className="px-4 py-3">Status</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-100">
                                                     {pendingUsers.map((u, i) => (
                                                         <tr key={i} className="hover:bg-slate-50">
-                                                            <td className="px-4 py-3 font-medium text-slate-700">{u.nome}</td>
+                                                            <td className="px-4 py-3 font-medium text-slate-700">{u.nome || 'Sem Nome'}</td>
                                                             <td className="px-4 py-3 text-slate-500">{u.setor || '-'}</td>
-                                                            <td className="px-4 py-3 text-slate-500">{u.cargo ? 'Cargo ' + u.cargo : '-'}</td>
+                                                            <td className="px-4 py-3 text-slate-500">
+                                                                {/* @ts-ignore */}
+                                                                {u.cargos?.nome || (u.cargo ? `Cargo ${u.cargo}` : '-')}
+                                                            </td>
+                                                            <td className="px-4 py-3">
+                                                                <span className="text-xs text-slate-400 italic">Pendente</span>
+                                                            </td>
                                                         </tr>
                                                     ))}
                                                 </tbody>
