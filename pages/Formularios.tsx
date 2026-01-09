@@ -6,7 +6,7 @@ import {
     MoreVertical, Edit2, Trash2, X, Check, Copy, ExternalLink,
     ChevronUp, ChevronDown, List, Type, MessageSquare, Star,
     User, Users, Calendar, Clock, ArrowLeft, ChevronRight, Split, Layout, Minimize2, AlignJustify, GripVertical,
-    Building2, MapPin, Briefcase, Filter, Download, Play, Pause, Settings, Save, CheckCircle, AlertCircle, Send, Hash, Info, ThumbsUp, ThumbsDown, PieChart as PieChartIcon
+    Building2, MapPin, Briefcase, Filter, Download, Play, Pause, Settings, Save, CheckCircle, AlertCircle, Send, Hash, Info, ThumbsUp, ThumbsDown, PieChart as PieChartIcon, Eye
 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { Form, FormQuestion, FormAnswer, HSEDimension, QuestionType, HSERule, HSEDiagnosticItem } from '../types';
@@ -1063,15 +1063,28 @@ export const Formularios: React.FC = () => {
     const [loadingStats, setLoadingStats] = useState(false);
 
     // New Analytics State
-    const [analyticsTab, setAnalyticsTab] = useState<'overview' | 'individual' | 'diagnostic' | 'interpretative'>('overview');
+    const [analyticsTab, setAnalyticsTab] = useState<'overview' | 'individual' | 'diagnostic' | 'interpretative'>('diagnostic');
+    const [infoPopoverId, setInfoPopoverId] = useState<number | null>(null);
     const [selectedRespondent, setSelectedRespondent] = useState<string | null>(null); // Groups by responder_identifier + timestamp key
     const [diagnosticData, setDiagnosticData] = useState<HSEDiagnosticItem[]>([]);
     const [expandedInterpretativeDims, setExpandedInterpretativeDims] = useState<Set<number>>(new Set());
+
+    // Overview Search State
+    const [overviewSearch, setOverviewSearch] = useState('');
 
     // Redesign Overview State
     const [totalEmployees, setTotalEmployees] = useState<number>(0);
     const [sectorStats, setSectorStats] = useState<{ name: string; count: number }[]>([]);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+    const [respondentMetadata, setRespondentMetadata] = useState<Record<string, { setor: string }>>({});
+
+    // Participation Modal State
+    const [isParticipationModalOpen, setIsParticipationModalOpen] = useState(false);
+    const [companyUsers, setCompanyUsers] = useState<any[]>([]); // Full list for participation tracking
+    const [participationTab, setParticipationTab] = useState<'responded' | 'pending'>('responded');
+    const [participationSearch, setParticipationSearch] = useState('');
+    const [individualModalOpen, setIndividualModalOpen] = useState(false);
+    const [selectedRespondentId, setSelectedRespondentId] = useState<string | null>(null);
 
     // isCompactMode state removed - enforced to true by default props passing
 
@@ -1156,9 +1169,33 @@ export const Formularios: React.FC = () => {
             .select('*')
             .eq('form_id', form.id)
             .order('created_at', { ascending: false });
-        setAnswers(aData || []);
 
-        setAnswers(aData || []);
+        if (aData && aData.length > 0) {
+            setAnswers(aData);
+            const userIds = [...new Set(aData.map((a: any) => a.respondedor).filter(Boolean))];
+
+            if (userIds.length > 0) {
+                console.log('Fetching metadata for Responders (colaboradores table):', userIds);
+                const { data: usersData, error: metaError } = await supabase
+                    .from('colaboradores')
+                    .select('id, nome, setor, cargo, cargos(nome)')
+                    .in('id', userIds);
+
+                console.log('Metadata Users Data:', usersData, 'Error:', metaError);
+
+                if (usersData) {
+                    const meta: Record<string, { nome: string; setor: string; cargo: string }> = {};
+                    usersData.forEach((u: any) => {
+                        // Handle nested cargo object if join works
+                        const cargoName = u.cargos?.nome || (typeof u.cargos === 'object' ? u.cargos.nome : null) || (u.cargo ? `Cargo ${u.cargo}` : '-');
+                        meta[u.id] = { nome: u.nome, setor: u.setor || '-', cargo: cargoName };
+                    });
+                    setRespondentMetadata(meta);
+                }
+            }
+        } else {
+            setAnswers([]);
+        }
 
         // Fetch Employee Data for Comparison
         if (form.unidade_id) {
@@ -1170,38 +1207,38 @@ export const Formularios: React.FC = () => {
                     .eq('id', form.unidade_id)
                     .single();
 
-                if (unitData?.empresaid) {
-                    // 2. Count Total Employees
-                    const { count, error: countError } = await supabase
-                        .from('users')
-                        .select('*', { count: 'exact', head: true })
-                        .eq('empresa', unitData.empresaid)
-                        .eq('active', true); // Assuming active flag exists, matches typical pattern
+                // 2. Fetch All Employees for Participation Tracking
+                console.log('Fetching collaborators for Unit ID:', form.unidade_id);
+                const { data: allUsers, error: usersError } = await supabase
+                    .from('colaboradores')
+                    .select('id, nome, setor:setorid, cargo, unidade') // Using alias if supported or just mapping later
+                    .eq('unidade', form.unidade_id); // Filter by specific Unit
+                // .eq('active', true); // 'colaboradores' might not have active column, user requested 'real amount'
 
-                    if (!countError) setTotalEmployees(count || 0);
+                console.log('Fetched Collaborators:', allUsers?.length, 'Error:', usersError);
 
-                    // 3. If > 20, fetch Sector Breakdown
-                    if ((count || 0) > 20) {
-                        const { data: usersData } = await supabase
-                            .from('users')
-                            .select('setor')
-                            .eq('empresa', unitData.empresaid)
-                            .eq('active', true);
 
-                        if (usersData) {
-                            const sectors: Record<string, number> = {};
-                            usersData.forEach(u => {
-                                const s = u.setor || 'Não Definido';
-                                sectors[s] = (sectors[s] || 0) + 1;
-                            });
-                            setSectorStats(Object.entries(sectors).map(([name, count]) => ({ name, count })));
-                        }
+
+                if (!usersError && allUsers) {
+                    setCompanyUsers(allUsers);
+                    setTotalEmployees(allUsers.length);
+
+                    // 3. If > 20, calculate Sector Breakdown from full list
+                    if (allUsers.length > 20) {
+                        const stats: Record<string, number> = {};
+                        allUsers.forEach((u: any) => {
+                            const s = u.setor || 'Não Definido';
+                            stats[s] = (stats[s] || 0) + 1;
+                        });
+                        setSectorStats(Object.entries(stats).map(([name, count]) => ({ name, count })));
                     } else {
                         setSectorStats([]);
                     }
+                } else {
+                    setTotalEmployees(0);
                 }
             } catch (err) {
-                console.error('Error fetching employee stats:', err);
+                console.error('Error fetching stats comparisons:', err);
             }
         }
 
@@ -1241,20 +1278,27 @@ export const Formularios: React.FC = () => {
             name: string;
             date: string;
             answerCount: number;
+            setor?: string;
+            cargo?: any;
+            respondedorId?: string;
         }> = {};
 
         answers.forEach(a => {
             // Create a unique key for the submission. 
             // In a real app we'd use a submission_id. Here we assume created_at is unique per submission.
             const key = `${a.responder_identifier || 'anon'}_${a.created_at}`;
+            const respondedorId = a.respondedor;
 
             if (!groups[key]) {
                 groups[key] = {
                     id: key,
                     identifier: a.responder_identifier || 'Anônimo',
-                    name: a.responder_name || 'Sem nome',
+                    name: (respondedorId ? respondentMetadata[respondedorId]?.nome : undefined) || a.responder_name || 'Sem nome',
                     date: a.created_at,
-                    answerCount: 0
+                    answerCount: 0,
+                    respondedorId: respondedorId,
+                    setor: respondedorId ? respondentMetadata[respondedorId]?.setor : undefined,
+                    cargo: respondedorId ? respondentMetadata[respondedorId]?.cargo : undefined
                 };
             }
             groups[key].answerCount++;
@@ -1447,177 +1491,217 @@ export const Formularios: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Detailed Analysis - STACKED BARS */}
+                    {/* Detailed Analysis - STACKED BARS + INDEX SIDEBAR */}
                     <div className="space-y-4">
                         <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 mt-4">
                             <BarChart2 className="text-slate-400" size={18} />
                             Análise por Pergunta
                         </h3>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {questions.map((q, idx) => {
-                                // Find Dimension info if available
-                                const diagItem = diagnosticData.find(d => d.texto_pergunta === q.label);
-                                const dimName = diagItem?.dimensao;
-                                const dimObj = hseDimensions.find(d => d.name?.toLowerCase().trim() === dimName?.toLowerCase().trim());
-                                const isPositive = dimObj ? dimObj.is_positive : true; // Default to true if not found
+                        <div className="flex flex-col lg:flex-row gap-12 justify-center items-start relative">
+                            {/* LEFT COLUMN: Questions List (Centered, constrained width) */}
+                            <div className="flex-1 max-w-2xl space-y-6">
+                                {questions.map((q, idx) => {
+                                    // Find Dimension info if available
+                                    const diagItem = diagnosticData.find(d => d.texto_pergunta === q.label);
+                                    const dimName = diagItem?.dimensao;
+                                    const dimObj = hseDimensions.find(d => d.name?.toLowerCase().trim() === dimName?.toLowerCase().trim());
+                                    const isPositive = dimObj ? dimObj.is_positive : true; // Default to true if not found
 
-                                // Calculate Buckets for Rating 0-4
-                                // Assumption: answer_value is numeric 0-4 or 1-5. User mentioned "Option 0".
-                                // We will map numeric values to indices 0,1,2,3,4.
-                                const qAnswers = answers.filter(a => a.question_id === q.id);
-                                const totalQ = qAnswers.length || 1;
-                                const buckets = [0, 0, 0, 0, 0];
+                                    // Calculate Buckets for Rating 0-4
+                                    // Assumption: answer_value is numeric 0-4 or 1-5. User mentioned "Option 0".
+                                    // We will map numeric values to indices 0,1,2,3,4.
+                                    const qAnswers = answers.filter(a => a.question_id === q.id);
+                                    const totalQ = qAnswers.length || 1;
+                                    const buckets = [0, 0, 0, 0, 0];
 
-                                qAnswers.forEach(a => {
-                                    let idx = -1;
-                                    const answerVal = a.answer_number !== undefined && a.answer_number !== null ? a.answer_number : a.answer_text;
-                                    const val = Number(answerVal);
+                                    qAnswers.forEach(a => {
+                                        let idx = -1;
+                                        const answerVal = a.answer_number !== undefined && a.answer_number !== null ? a.answer_number : a.answer_text;
+                                        const val = Number(answerVal);
 
-                                    // 1. Try Numeric Direct Match (0-4)
-                                    if (!isNaN(val) && val >= 0 && val <= 4) {
-                                        idx = val;
-                                    }
-                                    // 2. Try matching Text to Options (Question fields option_1..option_5)
-                                    // 2. Try matching Text to Options or Standard Likert
-                                    else {
-                                        const cleanVal = String(answerVal || '').trim().toLowerCase();
-                                        const opt1 = q.option_1?.trim().toLowerCase();
-                                        const opt2 = q.option_2?.trim().toLowerCase();
-                                        const opt3 = q.option_3?.trim().toLowerCase();
-                                        const opt4 = q.option_4?.trim().toLowerCase();
-                                        const opt5 = q.option_5?.trim().toLowerCase();
+                                        // 1. Try Numeric Direct Match (0-4)
+                                        if (!isNaN(val) && val >= 0 && val <= 4) {
+                                            idx = val;
+                                        }
+                                        // 2. Try matching Text to Options (Question fields option_1..option_5)
+                                        // 2. Try matching Text to Options or Standard Likert
+                                        else {
+                                            const cleanVal = String(answerVal || '').trim().toLowerCase();
+                                            const opt1 = q.option_1?.trim().toLowerCase();
+                                            const opt2 = q.option_2?.trim().toLowerCase();
+                                            const opt3 = q.option_3?.trim().toLowerCase();
+                                            const opt4 = q.option_4?.trim().toLowerCase();
+                                            const opt5 = q.option_5?.trim().toLowerCase();
 
-                                        if (opt1 && cleanVal === opt1) idx = 0;
-                                        else if (opt2 && cleanVal === opt2) idx = 1;
-                                        else if (opt3 && cleanVal === opt3) idx = 2;
-                                        else if (opt4 && cleanVal === opt4) idx = 3;
-                                        else if (opt5 && cleanVal === opt5) idx = 4;
+                                            if (opt1 && cleanVal === opt1) idx = 0;
+                                            else if (opt2 && cleanVal === opt2) idx = 1;
+                                            else if (opt3 && cleanVal === opt3) idx = 2;
+                                            else if (opt4 && cleanVal === opt4) idx = 3;
+                                            else if (opt5 && cleanVal === opt5) idx = 4;
 
-                                        // Standard Fallback (Portuguese)
-                                        else if (cleanVal === 'nunca') idx = 0;
-                                        else if (cleanVal === 'raramente') idx = 1;
-                                        else if (cleanVal === 'às vezes' || cleanVal === 'as vezes') idx = 2;
-                                        else if (cleanVal === 'frequentemente') idx = 3;
-                                        else if (cleanVal === 'sempre') idx = 4;
+                                            // Standard Fallback (Portuguese)
+                                            else if (cleanVal === 'nunca') idx = 0;
+                                            else if (cleanVal === 'raramente') idx = 1;
+                                            else if (cleanVal === 'às vezes' || cleanVal === 'as vezes') idx = 2;
+                                            else if (cleanVal === 'frequentemente') idx = 3;
+                                            else if (cleanVal === 'sempre') idx = 4;
 
-                                        console.log(`[DEBUG] Q: ${q.id} Val: "${answerVal}" -> Idx: ${idx}`);
-                                    }
+                                            console.log(`[DEBUG] Q: ${q.id} Val: "${answerVal}" -> Idx: ${idx}`);
+                                        }
 
-                                    if (idx !== -1) {
-                                        buckets[idx]++;
-                                    }
-                                });
+                                        if (idx !== -1) {
+                                            buckets[idx]++;
+                                        }
+                                    });
 
-                                // Define Colors based on isPositive
-                                // Positive (High Score = Good): 0 (Bad/Red) -> 4 (Good/Green)
-                                const colorsPositive = ['#EF4444', '#F97316', '#EAB308', '#34D399', '#10B981'];
-                                // Negative (High Score = Bad): 0 (Good/Green) -> 4 (Bad/Red)
-                                const colorsNegative = ['#10B981', '#34D399', '#EAB308', '#F97316', '#EF4444'];
-                                const activeColors = isPositive ? colorsPositive : colorsNegative;
-                                const labels = ['Nunca', 'Raramente', 'Às vezes', 'Frequentemente', 'Sempre'];
+                                    // Define Colors based on isPositive
+                                    // Positive (High Score = Good): 0 (Bad/Red) -> 4 (Good/Green)
+                                    const colorsPositive = ['#EF4444', '#F97316', '#EAB308', '#34D399', '#10B981'];
+                                    // Negative (High Score = Bad): 0 (Good/Green) -> 4 (Bad/Red)
+                                    const colorsNegative = ['#10B981', '#34D399', '#EAB308', '#F97316', '#EF4444'];
+                                    const activeColors = isPositive ? colorsPositive : colorsNegative;
+                                    const labels = ['Nunca', 'Raramente', 'Às vezes', 'Frequentemente', 'Sempre'];
 
-                                const avg = Number(getAverageRating(q.id));
+                                    const avg = Number(getAverageRating(q.id));
 
-                                // Risk Label Logic
-                                let riskLabel = '';
-                                let riskColorClass = '';
+                                    // Risk Label Logic
+                                    let riskLabel = '';
+                                    let riskColorClass = '';
 
-                                // Try finding rule from DB first
-                                const rule = hseRules.find(r => r.dimension_id === dimObj?.id && avg >= r.min_val && avg <= r.max_val);
-                                if (rule) {
-                                    riskLabel = rule.texto_personalizado;
-                                    // Determine color based on matching one of 4 buckets if name matches, or generic logic
-                                    // Fallback text coloring based on score if we can't infer from text
-                                } else {
-                                    // Fallback to static 4 levels if no rule found
-                                    // User requested: baixo, médio, moderado, alto
-                                    // 0-1, 1-2, 2-3, 3-4
-                                    if (isPositive) {
-                                        // Positive: High Avg = Low Risk
-                                        if (avg >= 3) riskLabel = 'Baixo';
-                                        else if (avg >= 2) riskLabel = 'Médio';
-                                        else if (avg >= 1) riskLabel = 'Moderado';
-                                        else riskLabel = 'Alto';
+                                    // Try finding rule from DB first
+                                    const rule = hseRules.find(r => r.dimension_id === dimObj?.id && avg >= r.min_val && avg <= r.max_val);
+                                    if (rule) {
+                                        riskLabel = rule.texto_personalizado;
+                                        // Determine color based on matching one of 4 buckets if name matches, or generic logic
+                                        // Fallback text coloring based on score if we can't infer from text
                                     } else {
-                                        // Negative: Low Avg = Low Risk
-                                        if (avg <= 1) riskLabel = 'Baixo';
-                                        else if (avg <= 2) riskLabel = 'Médio';
-                                        else if (avg <= 3) riskLabel = 'Moderado';
-                                        else riskLabel = 'Alto';
+                                        // Fallback to static 4 levels if no rule found
+                                        // User requested: baixo, médio, moderado, alto
+                                        // 0-1, 1-2, 2-3, 3-4
+                                        if (isPositive) {
+                                            // Positive: High Avg = Low Risk
+                                            if (avg >= 3) riskLabel = 'Baixo';
+                                            else if (avg >= 2) riskLabel = 'Médio';
+                                            else if (avg >= 1) riskLabel = 'Moderado';
+                                            else riskLabel = 'Alto';
+                                        } else {
+                                            // Negative: Low Avg = Low Risk
+                                            if (avg <= 1) riskLabel = 'Baixo';
+                                            else if (avg <= 2) riskLabel = 'Médio';
+                                            else if (avg <= 3) riskLabel = 'Moderado';
+                                            else riskLabel = 'Alto';
+                                        }
                                     }
-                                }
 
-                                // Color Styling for Label (Independent of text, based on score severity)
-                                if (isPositive) {
-                                    if (avg <= 1.0) riskColorClass = 'text-red-600 bg-red-50 border-red-100'; // Bad
-                                    else if (avg <= 2.0) riskColorClass = 'text-orange-600 bg-orange-50 border-orange-100';
-                                    else if (avg <= 3.0) riskColorClass = 'text-amber-600 bg-amber-50 border-amber-100';
-                                    else riskColorClass = 'text-emerald-600 bg-emerald-50 border-emerald-100'; // Good
-                                } else {
-                                    if (avg >= 3.0) riskColorClass = 'text-red-600 bg-red-50 border-red-100'; // Bad
-                                    else if (avg >= 2.0) riskColorClass = 'text-orange-600 bg-orange-50 border-orange-100';
-                                    else if (avg >= 1.0) riskColorClass = 'text-amber-600 bg-amber-50 border-amber-100';
-                                    else riskColorClass = 'text-emerald-600 bg-emerald-50 border-emerald-100'; // Good
-                                }
+                                    // Color Styling for Label (Independent of text, based on score severity)
+                                    if (isPositive) {
+                                        if (avg <= 1.0) riskColorClass = 'text-red-600 bg-red-50 border-red-100'; // Bad
+                                        else if (avg <= 2.0) riskColorClass = 'text-orange-600 bg-orange-50 border-orange-100';
+                                        else if (avg <= 3.0) riskColorClass = 'text-amber-600 bg-amber-50 border-amber-100';
+                                        else riskColorClass = 'text-emerald-600 bg-emerald-50 border-emerald-100'; // Good
+                                    } else {
+                                        if (avg >= 3.0) riskColorClass = 'text-red-600 bg-red-50 border-red-100'; // Bad
+                                        else if (avg >= 2.0) riskColorClass = 'text-orange-600 bg-orange-50 border-orange-100';
+                                        else if (avg >= 1.0) riskColorClass = 'text-amber-600 bg-amber-50 border-amber-100';
+                                        else riskColorClass = 'text-emerald-600 bg-emerald-50 border-emerald-100'; // Good
+                                    }
 
-                                return (
-                                    <Card key={q.id} className="p-5 overflow-hidden hover:shadow-md transition-shadow">
-                                        {/* Header */}
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div className="flex-1 pr-4">
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <h4 className="font-normal text-slate-700 text-sm leading-snug break-words">
-                                                        <span className="font-bold mr-1 text-slate-400">#{idx + 1}</span>
-                                                        {q.label}
-                                                    </h4>
-                                                    {dimName && (
-                                                        <span className="shrink-0 text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 uppercase tracking-tight">
-                                                            {dimName}
+                                    return (
+                                        <Card
+                                            key={q.id}
+                                            id={`question-${q.id}`}
+                                            className="p-5 overflow-hidden hover:shadow-md transition-shadow scroll-mt-24"
+                                        >
+                                            {/* Header */}
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div className="flex-1 pr-4">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <h4 className="font-normal text-slate-700 text-sm leading-snug break-words">
+                                                            <span className="font-bold mr-1 text-slate-400">#{idx + 1}</span>
+                                                            {q.label}
+                                                        </h4>
+                                                        {dimName && (
+                                                            <span className="shrink-0 text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 uppercase tracking-tight">
+                                                                {dimName}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="shrink-0 text-right">
+                                                    {(q.question_type === 'rating' || q.question_type === 'choice' || q.question_type === 'select') && (
+                                                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold border ${riskColorClass}`}>
+                                                            Média {avg.toFixed(1)} <span className="opacity-75 font-normal">({riskLabel})</span>
                                                         </span>
                                                     )}
+                                                    <span className="block text-[10px] text-slate-400 mt-0.5 text-right">{qAnswers.length} resp.</span>
                                                 </div>
                                             </div>
-                                            <div className="shrink-0 text-right">
-                                                {(q.question_type === 'rating' || q.question_type === 'choice' || q.question_type === 'select') && (
-                                                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold border ${riskColorClass}`}>
-                                                        Média {avg.toFixed(1)} <span className="opacity-75 font-normal">({riskLabel})</span>
-                                                    </span>
-                                                )}
-                                                <span className="block text-[10px] text-slate-400 mt-0.5 text-right">{qAnswers.length} resp.</span>
-                                            </div>
-                                        </div>
 
-                                        {/* Visual - Stacked Bar (For Rating, Choice, Select) */}
-                                        {(q.question_type === 'rating' || q.question_type === 'choice' || q.question_type === 'select') ? (
-                                            <div className="w-full h-3 rounded-md overflow-hidden flex bg-slate-100">
-                                                {buckets.map((count, idx) => {
-                                                    const perc = (count / totalQ) * 100;
-                                                    if (perc === 0) return null;
-                                                    return (
-                                                        <div
-                                                            key={idx}
-                                                            className="h-full transition-all duration-500 relative group"
-                                                            style={{ width: `${perc}%`, backgroundColor: activeColors[idx] }}
-                                                            title={`Opção ${idx} (${labels[idx]}): ${count} votos (${Math.round(perc)}%)`}
-                                                        >
-                                                            {/* Tooltip via Group Hover - Custom if title isn't enough */}
-                                                            {/* Browser native 'title' is requested, but we can enhance if needed. User asked for 'Tooltip simples'. Title is simplest. */}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        ) : (
-                                            // Fallback for non-rating questions (Text/Choice) -> Keep compact or simplify
-                                            <div className="text-xs text-slate-500 italic bg-slate-50 p-2 rounded">
-                                                Visualização disponível apenas para perguntas de escala.
-                                                {/* Could keep previous logic for Choice/Text but keeping it minimal for now as requested "Compact" */}
-                                            </div>
-                                        )}
+                                            {/* Visual - Stacked Bar (For Rating, Choice, Select) */}
+                                            {(q.question_type === 'rating' || q.question_type === 'choice' || q.question_type === 'select') ? (
+                                                <div className="w-full h-3 rounded-md overflow-hidden flex bg-slate-100">
+                                                    {buckets.map((count, idx) => {
+                                                        const perc = (count / totalQ) * 100;
+                                                        if (perc === 0) return null;
+                                                        return (
+                                                            <div
+                                                                key={idx}
+                                                                className="h-full transition-all duration-500 relative group"
+                                                                style={{ width: `${perc}%`, backgroundColor: activeColors[idx] }}
+                                                                title={`Opção ${idx} (${labels[idx]}): ${count} votos (${Math.round(perc)}%)`}
+                                                            >
+                                                                {/* Tooltip via Group Hover - Custom if title isn't enough */}
+                                                                {/* Browser native 'title' is requested, but we can enhance if needed. User asked for 'Tooltip simples'. Title is simplest. */}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : (
+                                                // Fallback for non-rating questions (Text/Choice) -> Keep compact or simplify
+                                                <div className="text-xs text-slate-500 italic bg-slate-50 p-2 rounded">
+                                                    Visualização disponível apenas para perguntas de escala.
+                                                    {/* Could keep previous logic for Choice/Text but keeping it minimal for now as requested "Compact" */}
+                                                </div>
+                                            )}
 
-                                    </Card>
-                                )
-                            })}
+                                        </Card>
+                                    )
+                                })}
+                            </div>
+
+                            {/* RIGHT COLUMN: Quick Index (Fixed width) */}
+                            <div className="hidden lg:block w-72 shrink-0 sticky top-4 h-fit">
+                                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-h-[calc(100vh-120px)] overflow-y-auto">
+                                    <h4 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2 sticky top-0 bg-white pb-2 border-b border-slate-100 z-10">
+                                        <List size={16} className="text-blue-500" />
+                                        Índice Rápido
+                                    </h4>
+                                    <ul className="space-y-1">
+                                        {questions.map((q, idx) => (
+                                            <li key={q.id}>
+                                                <button
+                                                    onClick={() => {
+                                                        const el = document.getElementById(`question-${q.id}`);
+                                                        if (el) {
+                                                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                            // Optional: Highlight effect
+                                                            el.classList.add('ring-2', 'ring-blue-400');
+                                                            setTimeout(() => el.classList.remove('ring-2', 'ring-blue-400'), 2000);
+                                                        }
+                                                    }}
+                                                    className="w-full text-left p-2 rounded-lg text-xs text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all flex gap-2 group"
+                                                >
+                                                    <span className="font-bold text-slate-300 group-hover:text-blue-400 w-5">#{idx + 1}</span>
+                                                    <span className="truncate flex-1">{q.label}</span>
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            </div>
+
+
                         </div>
                     </div>
 
@@ -1688,6 +1772,24 @@ export const Formularios: React.FC = () => {
 
         const renderIndividual = () => {
             const respondents = getRespondents();
+
+            // Filter Respondents by Search
+            const filteredRespondents = respondents.filter(r =>
+                r.name.toLowerCase().includes(overviewSearch.toLowerCase()) ||
+                r.identifier.toLowerCase().includes(overviewSearch.toLowerCase())
+            );
+
+            const totalRespondents = respondents.length; // Keep total based on ALL, or filtered? Usually total is all, table is filtered.
+            // Let's keep metrics based on ALL data for accurate KPIs 
+            const totalQuestions = questions.length;
+
+            const avgTime = 'N/A'; // Need duration data
+
+            // Calculate Avg Time if possible (mocked for now as data isn't clear)
+            // If we have started_at we could calc. For now assume N/A or derive from something else.
+
+            // Check sector condition
+            const showSector = totalEmployees > 20;
 
             // DETAIL VIEW (Selected Respondent)
             if (selectedRespondent) {
@@ -1766,56 +1868,376 @@ export const Formularios: React.FC = () => {
                 );
             }
 
-
-
             return (
-                <div className="space-y-4 animate-in fade-in duration-300">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-lg font-bold text-slate-800">Participantes ({respondents.length})</h3>
-                        {/* Could add download CSV here */}
+                <div className="space-y-6 animate-in fade-in duration-300">
+                    <div className="flex justify-between items-center">
+                        <div />
+                    </div>
+
+                    {/* KPIs */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div
+                            onClick={() => setIsParticipationModalOpen(true)}
+                            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm cursor-pointer hover:border-blue-300 hover:shadow-md transition-all group"
+                        >
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <p className="text-sm text-slate-500 font-medium group-hover:text-blue-600 transition-colors">Participação</p>
+                                    <h4 className="text-2xl font-bold text-slate-800 mt-1">
+                                        {totalRespondents}
+                                        <span className="text-sm font-normal text-slate-400 ml-1">/ {totalEmployees || '?'}</span>
+                                    </h4>
+                                </div>
+                                <div className="p-2 bg-blue-50 rounded-lg text-blue-600 group-hover:bg-blue-100 transition-colors">
+                                    <Users size={20} />
+                                </div>
+                            </div>
+                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                <div
+                                    className="h-full bg-blue-500 rounded-full"
+                                    style={{ width: `${totalEmployees > 0 ? (totalRespondents / totalEmployees) * 100 : 0}%` }}
+                                ></div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <p className="text-sm text-slate-500 font-medium">Total de Perguntas</p>
+                                    <h4 className="text-2xl font-bold text-slate-800 mt-1">{totalQuestions}</h4>
+                                </div>
+                                <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
+                                    <List size={20} />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <p className="text-sm text-slate-500 font-medium">Tempo Médio</p>
+                                    <h4 className="text-2xl font-bold text-slate-800 mt-1">-- min</h4>
+                                </div>
+                                <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
+                                    <Clock size={20} />
+                                </div>
+                            </div>
+                            <p className="text-xs text-slate-400 mt-2">Estimativa baseada em conclusões</p>
+                        </div>
                     </div>
 
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                        {respondents.length === 0 ? (
+                        <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+                            <h4 className="font-bold text-slate-700">Respostas Recentes</h4>
+                            <div className="relative w-full sm:w-64">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                <input
+                                    type="text"
+                                    placeholder="Buscar colaborador..."
+                                    value={overviewSearch}
+                                    onChange={(e) => setOverviewSearch(e.target.value)}
+                                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                                />
+                            </div>
+                        </div>
+                        {filteredRespondents.length === 0 ? (
                             <div className="p-12 text-center text-slate-400">
-                                Nenhuma resposta registrada ainda.
+                                <Users size={48} className="mx-auto mb-4 opacity-20" />
+                                <p>Nenhuma resposta encontrada.</p>
                             </div>
                         ) : (
-                            // ... (List View Content) ...
-                            <div className="divide-y divide-slate-100">
-                                {respondents.map((r) => (
-                                    <div
-                                        key={r.id}
-                                        className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between cursor-pointer group"
-                                        onClick={() => setSelectedRespondent(r.id)}
-                                    >
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg">
-                                                {r.name.charAt(0).toUpperCase()}
-                                            </div>
-                                            <div>
-                                                <h4 className="font-bold text-slate-700">{r.name}</h4>
-                                                <span className="text-xs text-slate-400 font-mono">{r.identifier}</span>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-6">
-                                            <div className="text-right">
-                                                <span className="block text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
-                                                    Running ID: {r.id.split('_')[1]?.slice(-4) || '...'}
-                                                </span>
-                                                <span className="text-xs text-slate-400">
-                                                    {new Date(r.date).toLocaleDateString()} às {new Date(r.date).toLocaleTimeString().slice(0, 5)}
-                                                </span>
-                                            </div>
-                                            <div className="p-2 rounded-full text-slate-300 group-hover:text-blue-500 group-hover:bg-blue-50 transition-colors">
-                                                <ChevronRight size={20} />
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-slate-500 font-medium">
+                                        <tr>
+                                            <th className="px-6 py-3">Participante</th>
+                                            {showSector && <th className="px-6 py-3">Setor</th>}
+                                            <th className="px-6 py-3">Data Envio</th>
+                                            <th className="px-6 py-3 text-right">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {filteredRespondents.map((r, idx) => (
+                                            <tr key={idx} className="group hover:bg-slate-50 transition-colors">
+                                                <td className="px-6 py-4 font-medium text-slate-800">
+                                                    <div>
+                                                        {r.name}
+                                                        <span className="block text-xs text-slate-400 font-mono mt-0.5">{r.identifier}</span>
+                                                    </div>
+                                                </td>
+                                                {showSector && (
+                                                    <td className="px-6 py-4 text-slate-600">
+                                                        {r.setor || '-'}
+                                                    </td>
+                                                )}
+                                                <td className="px-6 py-4 text-slate-500">
+                                                    {new Date(r.date).toLocaleString()}
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={() => {
+                                                            setAnalyticsTab('individual');
+                                                            setSelectedRespondent(r.id);
+                                                        }}
+                                                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    >
+                                                        Ver Detalhes
+                                                    </Button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
                         )}
                     </div>
+
+                    {/* Participation Modal */}
+                    <Modal
+                        isOpen={isParticipationModalOpen}
+                        onClose={() => {
+                            setIsParticipationModalOpen(false);
+                            setParticipationSearch('');
+                        }}
+                        title="Detalhes de Participação"
+                    >
+                        <div className="space-y-6">
+                            {/* Summary Cards acting as Tabs */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div
+                                    onClick={() => setParticipationTab('responded')}
+                                    className={`p-4 rounded-xl border cursor-pointer transition-all ${participationTab === 'responded'
+                                        ? 'bg-emerald-50 border-emerald-200 ring-2 ring-emerald-500/20'
+                                        : 'bg-white border-slate-200 hover:border-emerald-200 hover:bg-emerald-50/50'
+                                        }`}
+                                >
+                                    <span className="text-emerald-600 font-medium text-sm">Participantes</span>
+                                    <p className="text-2xl font-bold text-emerald-700">{totalRespondents}</p>
+                                </div>
+                                <div
+                                    onClick={() => setParticipationTab('pending')}
+                                    className={`p-4 rounded-xl border cursor-pointer transition-all ${participationTab === 'pending'
+                                        ? 'bg-amber-50 border-amber-200 ring-2 ring-amber-500/20'
+                                        : 'bg-white border-slate-200 hover:border-amber-200 hover:bg-amber-50/50'
+                                        }`}
+                                >
+                                    <span className="text-amber-600 font-medium text-sm">Pendentes</span>
+                                    <p className="text-2xl font-bold text-amber-700">{Math.max(0, totalEmployees - totalRespondents)}</p>
+                                </div>
+                            </div>
+
+                            {/* Search and Tab Navigation */}
+                            <div className="flex flex-col gap-4">
+                                <div className="flex bg-slate-100 p-1 rounded-lg">
+                                    <button
+                                        onClick={() => setParticipationTab('responded')}
+                                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${participationTab === 'responded'
+                                            ? 'bg-white text-emerald-700 shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700'
+                                            }`}
+                                    >
+                                        Participantes
+                                    </button>
+                                    <button
+                                        onClick={() => setParticipationTab('pending')}
+                                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${participationTab === 'pending'
+                                            ? 'bg-white text-amber-700 shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700'
+                                            }`}
+                                    >
+                                        Pendentes
+                                    </button>
+                                </div>
+
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                    <input
+                                        type="text"
+                                        placeholder={`Buscar em ${participationTab === 'responded' ? 'participantes' : 'pendentes'}...`}
+                                        value={participationSearch}
+                                        onChange={(e) => setParticipationSearch(e.target.value)}
+                                        className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Conditional List Content */}
+                            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden min-h-[300px] max-h-[400px] overflow-y-auto">
+                                {participationTab === 'pending' ? (
+                                    /* Pending List */
+                                    (() => {
+                                        const pendingUsers = companyUsers
+                                            .filter(u => !respondents.some(r => r.respondedorId === u.id))
+                                            .filter(u => u.nome.toLowerCase().includes(participationSearch.toLowerCase()));
+
+                                        if (pendingUsers.length === 0) {
+                                            return (
+                                                <div className="p-12 text-center text-slate-400">
+                                                    <p>{participationSearch ? 'Nenhum colaborador encontrado.' : 'Todos os colaboradores já responderam! 🎉'}</p>
+                                                </div>
+                                            );
+                                        }
+
+                                        return (
+                                            <table className="w-full text-sm text-left">
+                                                <thead className="bg-slate-50 text-slate-500 sticky top-0 font-medium">
+                                                    <tr>
+                                                        <th className="px-4 py-3">Colaborador</th>
+                                                        <th className="px-4 py-3">Setor</th>
+                                                        <th className="px-4 py-3">Cargo</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {pendingUsers.map((u, i) => (
+                                                        <tr key={i} className="hover:bg-slate-50">
+                                                            <td className="px-4 py-3 font-medium text-slate-700">{u.nome}</td>
+                                                            <td className="px-4 py-3 text-slate-500">{u.setor || '-'}</td>
+                                                            <td className="px-4 py-3 text-slate-500">{u.cargo ? 'Cargo ' + u.cargo : '-'}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        );
+                                    })()
+                                ) : (
+                                    /* Responded List */
+                                    (() => {
+                                        const respondedUsers = respondents
+                                            .filter(r =>
+                                                r.name.toLowerCase().includes(participationSearch.toLowerCase()) ||
+                                                r.identifier.toLowerCase().includes(participationSearch.toLowerCase())
+                                            );
+
+                                        if (respondedUsers.length === 0) {
+                                            return (
+                                                <div className="p-12 text-center text-slate-400">
+                                                    <p>{participationSearch ? 'Nenhum participante encontrado.' : 'Nenhuma resposta ainda.'}</p>
+                                                </div>
+                                            );
+                                        }
+
+                                        return (
+                                            <table className="w-full text-sm text-left">
+                                                <thead className="bg-slate-50 text-slate-500 sticky top-0 font-medium">
+                                                    <tr>
+                                                        <th className="px-4 py-3">Colaborador</th>
+                                                        <th className="px-4 py-3">Setor</th>
+                                                        <th className="px-4 py-3">Cargo</th>
+                                                        <th className="px-4 py-3">Data</th>
+                                                        <th className="px-4 py-3">Ações</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {respondedUsers.map((r, i) => (
+                                                        <tr key={i} className="hover:bg-slate-50">
+                                                            <td className="px-4 py-3 font-medium text-slate-700">{r.name}</td>
+                                                            <td className="px-4 py-3 text-slate-500">{r.setor || '-'}</td>
+                                                            <td className="px-4 py-3 text-slate-500">{r.cargo ? 'Cargo ' + r.cargo : '-'}</td>
+                                                            <td className="px-4 py-3 text-slate-500 text-xs">{new Date(r.date).toLocaleDateString()}</td>
+                                                            <td className="px-4 py-3">
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setSelectedRespondentId(r.respondedorId);
+                                                                        setIndividualModalOpen(true);
+                                                                    }}
+                                                                    className="text-xs flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors font-medium border border-blue-200"
+                                                                >
+                                                                    <Eye size={14} />
+                                                                    Ver detalhes
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        );
+                                    })()
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Individual Response Modal */}
+                        {individualModalOpen && selectedRespondentId && (
+                            <Modal
+                                isOpen={individualModalOpen}
+                                onClose={() => {
+                                    setIndividualModalOpen(false);
+                                    setSelectedRespondentId(null);
+                                }}
+                                title="Respostas do Colaborador"
+                            >
+                                <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2">
+                                    <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-100 mb-6">
+                                        <div className="bg-white p-2 rounded-full shadow-sm">
+                                            <User className="text-slate-500" size={24} />
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-slate-800 text-lg">
+                                                {respondents.find(r => r.respondedorId === selectedRespondentId)?.name || 'Colaborador desconhecido'}
+                                            </p>
+                                            <p className="text-slate-500 text-sm">
+                                                {respondents.find(r => r.respondedorId === selectedRespondentId)?.setor || 'Sem setor'}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        {questions.map((q, qIndex) => {
+                                            const answer = answers.find(a =>
+                                                a.question_id === q.id &&
+                                                a.respondedor === selectedRespondentId
+                                            );
+                                            const dimensionName = hseDimensions.find(d => d.id === q.hse_dimension_id)?.name;
+
+                                            // Skip conditional questions that weren't shown/answered.
+                                            if (!answer) return null;
+
+                                            return (
+                                                <div key={qIndex} className="p-5 bg-white border border-slate-100 rounded-xl shadow-sm hover:border-blue-100 transition-all">
+                                                    <div className="flex justify-between items-start gap-4 mb-3">
+                                                        <div className="flex gap-3">
+                                                            <div className="flex-shrink-0 w-8 h-8 flex items-center justify-center bg-slate-100 text-slate-600 font-bold rounded-lg text-sm">
+                                                                {qIndex + 1}
+                                                            </div>
+                                                            <p className="font-medium text-slate-800 pt-1 leading-relaxed">
+                                                                {q.label}
+                                                            </p>
+                                                        </div>
+                                                        {dimensionName && (
+                                                            <span className="flex-shrink-0 inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100">
+                                                                {dimensionName}
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="pl-11">
+                                                        {q.type === 'scale' || q.type === 'nps' ? (
+                                                            <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg font-bold border border-blue-100">
+                                                                <span className="text-xs font-normal text-blue-500 uppercase tracking-wider">Resposta:</span>
+                                                                {answer.answer_value}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 text-slate-700">
+                                                                {answer.answer_text || answer.answer_value || '-'}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        {questions.length === 0 && (
+                                            <p className="text-center text-slate-400 py-8">Nenhuma pergunta encontrada.</p>
+                                        )}
+                                        {answers.filter(a => a.respondedor === selectedRespondentId).length === 0 && questions.length > 0 && (
+                                            <p className="text-center text-slate-400 py-8">Nenhuma resposta encontrada para este colaborador.</p>
+                                        )}
+                                    </div>
+                                </div>
+                            </Modal>
+                        )}
+                    </Modal>
                 </div>
             );
         };
@@ -1879,7 +2301,7 @@ export const Formularios: React.FC = () => {
                                 const analysis = getRiskAnalysis(dimAverage, isPositive);
 
                                 return (
-                                    <div id={`dim-${dimId}`} key={dimId} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden scroll-mt-20">
+                                    <div id={`dim-${dimId}`} key={dimId} className="bg-white rounded-2xl border border-slate-200 shadow-sm scroll-mt-20 overflow-visible">
                                         <div className="p-5 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
                                             <div>
                                                 <div className="flex items-center gap-3 mb-1">
@@ -1900,13 +2322,121 @@ export const Formularios: React.FC = () => {
                                         <div className="divide-y divide-slate-100">
                                             {typedItems.map((item, idx) => (
                                                 <div key={idx} className="p-4 hover:bg-slate-50 transition-colors">
-                                                    <div className="flex flex-col gap-1">
+                                                    <div className="flex flex-col gap-1 pr-12 relative">
                                                         <p className="font-medium text-slate-700">
+                                                            <span className="font-bold text-slate-400 mr-2">
+                                                                #{questions.findIndex(q => q.label === item.texto_pergunta) + 1}
+                                                            </span>
                                                             {item.texto_pergunta}
                                                         </p>
                                                         <p className="text-sm text-slate-600">
                                                             {item.texto_risco_completo}: <span className="font-bold">({Number(item.media_valor || 0).toFixed(2)})</span>
                                                         </p>
+
+                                                        {/* Info Button & Popover */}
+                                                        {(() => {
+                                                            const qIndex = questions.findIndex(q => q.label === item.texto_pergunta);
+                                                            const question = questions[qIndex];
+
+                                                            if (!question) return null;
+
+                                                            // Calculate Frequencies (Only if popover is open or for pre-calc optimization?)
+                                                            // We do it here for simplicity, or only when rendering popover content.
+
+                                                            return (
+                                                                <div className="absolute right-0 top-1">
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setInfoPopoverId(infoPopoverId === question.id ? null : question.id);
+                                                                        }}
+                                                                        className={`p-1.5 rounded-full transition-colors ${infoPopoverId === question.id ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'}`}
+                                                                        title="Ver distribuição de respostas"
+                                                                    >
+                                                                        <Info size={18} />
+                                                                    </button>
+
+                                                                    {infoPopoverId === question.id && (
+                                                                        <div
+                                                                            className="absolute left-full ml-2 -top-5 z-50 w-72 bg-white rounded-xl shadow-xl border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
+                                                                            onClick={(e) => e.stopPropagation()}
+                                                                        >
+                                                                            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-xl">
+                                                                                <h4 className="font-bold text-slate-700 text-xs uppercase tracking-wider">Distribuição</h4>
+                                                                                <button onClick={() => setInfoPopoverId(null)} className="text-slate-400 hover:text-slate-600">
+                                                                                    <X size={14} />
+                                                                                </button>
+                                                                            </div>
+                                                                            <div className="p-4 space-y-3 max-h-64 overflow-y-auto">
+                                                                                {(() => {
+                                                                                    // Calculate Buckets
+                                                                                    const qAnswers = answers.filter(a => a.question_id === question.id);
+                                                                                    const total = qAnswers.length || 1;
+                                                                                    const reportBuckets: { label: string, count: number, perc: number }[] = [];
+
+                                                                                    if (question.question_type === 'rating' || question.question_type === 'choice' || question.question_type === 'select') {
+                                                                                        // Assuming standard 5 options 0-4 or text match like in Overview
+                                                                                        const counts = [0, 0, 0, 0, 0];
+                                                                                        const labels = ['Nunca', 'Raramente', 'Às vezes', 'Frequentemente', 'Sempre'];
+
+                                                                                        // Overwrite labels if custom options
+                                                                                        if (question.option_1) labels[0] = question.option_1;
+                                                                                        if (question.option_2) labels[1] = question.option_2;
+                                                                                        if (question.option_3) labels[2] = question.option_3;
+                                                                                        if (question.option_4) labels[3] = question.option_4;
+                                                                                        if (question.option_5) labels[4] = question.option_5;
+
+                                                                                        qAnswers.forEach(a => {
+                                                                                            const val = Number(a.answer_number ?? -1);
+                                                                                            // Text matching logic duplicated from Overview if needed or simple map for now
+                                                                                            // Just relying on answer_number 0-4 for simplicity as established in Overview
+                                                                                            let idx = -1;
+                                                                                            if (!isNaN(val) && val >= 0 && val <= 4) idx = val;
+                                                                                            else {
+                                                                                                // Simple text fallback
+                                                                                                const txt = (a.answer_text || '').toLowerCase().trim();
+                                                                                                if (txt === labels[0]?.toLowerCase()) idx = 0;
+                                                                                                else if (txt === labels[1]?.toLowerCase()) idx = 1;
+                                                                                                else if (txt === labels[2]?.toLowerCase()) idx = 2;
+                                                                                                else if (txt === labels[3]?.toLowerCase()) idx = 3;
+                                                                                                else if (txt === labels[4]?.toLowerCase()) idx = 4;
+                                                                                            }
+
+                                                                                            if (idx !== -1) counts[idx]++;
+                                                                                        });
+
+                                                                                        counts.forEach((c, i) => {
+                                                                                            if (labels[i]) {
+                                                                                                reportBuckets.push({
+                                                                                                    label: labels[i],
+                                                                                                    count: c,
+                                                                                                    perc: Math.round((c / total) * 100)
+                                                                                                });
+                                                                                            }
+                                                                                        });
+                                                                                    } else {
+                                                                                        // Free Text or other?
+                                                                                        reportBuckets.push({ label: 'Texto/Outros', count: qAnswers.length, perc: 100 });
+                                                                                    }
+
+                                                                                    return reportBuckets.map((b, bIdx) => (
+                                                                                        <div key={bIdx} className="flex justify-between items-center text-sm">
+                                                                                            <span className="text-slate-600 truncate max-w-[140px]" title={b.label}>{b.label}</span>
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                                                                    <div className="h-full bg-blue-500 rounded-full" style={{ width: `${b.perc}%` }}></div>
+                                                                                                </div>
+                                                                                                <span className="font-bold text-slate-700 text-xs w-8 text-right">{b.count}</span>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    ));
+                                                                                })()}
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </div>
                                             ))}
@@ -2266,17 +2796,12 @@ export const Formularios: React.FC = () => {
 
                     {/* Tabs */}
                     <div className="flex p-1 bg-slate-100 rounded-xl w-fit">
-                        <button
-                            onClick={() => { setAnalyticsTab('overview'); setSelectedRespondent(null); }}
-                            className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${analyticsTab === 'overview' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                        >
-                            Visão Geral
-                        </button>
+                        {/* Visão Geral Removed as per request */}
                         <button
                             onClick={() => setAnalyticsTab('individual')}
                             className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${analyticsTab === 'individual' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
-                            Respostas Individuais
+                            Visão Geral
                         </button>
                         <button
                             onClick={() => setAnalyticsTab('diagnostic')}
