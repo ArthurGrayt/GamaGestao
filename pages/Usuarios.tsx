@@ -1,8 +1,9 @@
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabase';
-import { Users, Search, Filter, Shield, Briefcase, User as UserIcon, Crown, FileText, CheckSquare, Square, X, Edit2, Save, Camera, Calendar, Mail, Stethoscope } from 'lucide-react';
+import { Users, Search, Filter, Shield, Briefcase, User as UserIcon, Crown, FileText, CheckSquare, Square, X, Edit2, Save, Camera, Calendar, Mail, Stethoscope, Trash2 } from 'lucide-react';
 import { PointReportModal } from '../components/PointReportModal';
+import { EditPointsModal } from '../components/EditPointsModal';
 
 interface Role {
     id: number;
@@ -14,40 +15,35 @@ interface Sector {
     sector_name: string;
 }
 
-// Medical Access Profile Interface
 interface PerfilMed {
     id: number;
-    acesso: string; // Strictly from schema
+    acesso: string;
 }
 
 interface User {
     id: number;
-    user_id: string; // UUID
+    user_id: string; // UUID from auth or FK
     username: string;
     img_url?: string;
     lider: boolean;
     role?: Role;
-    role_id?: number; // Raw FK
+    role_id?: number;
     sector?: Sector;
-    sector_id?: number; // Raw FK
+    sector_id?: number;
     email: string;
     created_at: string;
-    acesso_med?: number; // FK to perfil_med
-    acesso_med_rel?: PerfilMed; // Relation view
-    phone_contact?: string;
+    acesso_med?: number;
+    acesso_med_rel?: PerfilMed;
 }
 
-export const Usuarios: React.FC = () => {
+export function Usuarios() {
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
-    const [searchTerm, setSearchTerm] = useState('');
-
-    // Auxiliary Data for Dropdowns
     const [roles, setRoles] = useState<Role[]>([]);
     const [sectors, setSectors] = useState<Sector[]>([]);
     const [medProfiles, setMedProfiles] = useState<PerfilMed[]>([]);
 
-    // Selection & Report Mode
+    const [searchTerm, setSearchTerm] = useState('');
     const [isSelectionMode, setIsSelectionMode] = useState(false);
     const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set());
     const [showReportModal, setShowReportModal] = useState(false);
@@ -55,6 +51,7 @@ export const Usuarios: React.FC = () => {
     // Detail Modal State
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isEditPointsModalOpen, setIsEditPointsModalOpen] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
     // Edit Form State
@@ -100,24 +97,6 @@ export const Usuarios: React.FC = () => {
             console.error('Erro ao buscar dados auxiliares:', error);
         }
     }
-    // ... (skip unchanged functions)
-    // ...
-    {/* Acesso Medico */ }
-    <div className="space-y-2">
-        <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-            <Stethoscope size={16} className="text-blue-500" /> Acesso Médico
-        </label>
-        <select
-            className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
-            value={editForm.acesso_med || ''}
-            onChange={(e) => setEditForm({ ...editForm, acesso_med: Number(e.target.value) || null })}
-        >
-            <option value="">Sem Acesso Médico</option>
-            {medProfiles.map(p => (
-                <option key={p.id} value={p.id}>{p.acesso}</option>
-            ))}
-        </select>
-    </div>
 
     const toggleSelectionMode = (initialUserId?: number) => {
         if (isSelectionMode && !initialUserId) {
@@ -210,6 +189,33 @@ export const Usuarios: React.FC = () => {
         }
     };
 
+    const handleDeleteUser = async () => {
+        if (!selectedUser) return;
+
+        if (!confirm('ATENÇÃO: Você está prestes a excluir permanentemente este perfil de colaborador. Todas as informações associadas serão perdidas. Deseja continuar?')) {
+            return;
+        }
+
+        setIsSaving(true);
+        try {
+            const { error } = await supabase
+                .from('users')
+                .delete()
+                .eq('id', selectedUser.id);
+
+            if (error) throw error;
+
+            await fetchUsers();
+            setIsEditModalOpen(false);
+            alert('Colaborador excluído com sucesso.');
+        } catch (error) {
+            console.error('Erro ao excluir usuário:', error);
+            alert('Erro ao excluir usuário. Verifique se existem registros vinculados.');
+        } finally {
+            setIsSaving(false);
+        }
+    }
+
     const filteredUsers = users.filter(user =>
         user.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         user.role?.name_roles?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -232,13 +238,22 @@ export const Usuarios: React.FC = () => {
 
                 <div className="flex items-center gap-3 w-full md:w-auto">
                     {!isSelectionMode && (
-                        <button
-                            onClick={() => toggleSelectionMode()}
-                            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/20"
-                        >
-                            <FileText size={18} />
-                            Relatório de Ponto
-                        </button>
+                        <>
+                            <button
+                                onClick={() => setIsEditPointsModalOpen(true)}
+                                className="flex items-center gap-2 bg-amber-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-amber-600 transition-colors shadow-sm shadow-amber-500/20"
+                            >
+                                <Edit2 size={18} />
+                                Editar Pontos
+                            </button>
+                            <button
+                                onClick={() => toggleSelectionMode()}
+                                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/20"
+                            >
+                                <FileText size={18} />
+                                Relatório de Ponto
+                            </button>
+                        </>
                     )}
 
                     {isSelectionMode && (
@@ -379,7 +394,14 @@ export const Usuarios: React.FC = () => {
             <PointReportModal
                 isOpen={showReportModal}
                 onClose={() => setShowReportModal(false)}
-                users={selectedUsersList.map(u => ({ ...u, id: String(u.id) }))} // Adapter for ID type mismatch if needed. Check PointReportModal props.
+                users={selectedUsersList.map(u => ({ ...u, id: String(u.id) }))}
+            />
+
+            {/* NEW: Edit Points Modal */}
+            <EditPointsModal
+                isOpen={isEditPointsModalOpen}
+                onClose={() => setIsEditPointsModalOpen(false)}
+                users={users.map(u => ({ id: u.id, user_id: u.user_id, username: u.username, img_url: u.img_url, role_id: u.role?.id || u.role_id }))}
             />
 
             {/* EDIT USER MODAL */}
@@ -388,100 +410,116 @@ export const Usuarios: React.FC = () => {
                     <div className="bg-white w-full max-w-2xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
                         {/* Header */}
                         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-2xl">
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-full bg-slate-200 overflow-hidden border-2 border-white shadow-sm">
-                                    {selectedUser.img_url ? (
-                                        <img src={selectedUser.img_url} alt="Profile" className="w-full h-full object-cover" />
-                                    ) : (
-                                        <div className="w-full h-full flex items-center justify-center text-slate-400"><UserIcon size={20} /></div>
-                                    )}
+                            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-3">
+                                <div className="bg-blue-100 p-2 rounded-xl text-blue-600">
+                                    <Users size={20} />
                                 </div>
-                                <div>
-                                    <h3 className="text-lg font-bold text-slate-800">Editar Colaborador</h3>
-                                    <p className="text-sm text-slate-500">ID: {selectedUser.user_id}</p>
-                                </div>
-                            </div>
-                            <button onClick={() => setIsEditModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600">
-                                <X size={24} />
+                                Editar Colaborador
+                            </h2>
+                            <button
+                                onClick={() => setIsEditModalOpen(false)}
+                                className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600"
+                            >
+                                <X size={20} />
                             </button>
                         </div>
 
-                        {/* Body */}
-                        <div className="p-6 overflow-y-auto space-y-6">
-                            {/* NOTE: Profile Image URL Field Removed as per request */}
+                        {/* Form Body */}
+                        <div className="p-8 overflow-y-auto space-y-6">
+                            {/* Avatar Section */}
+                            <div className="flex flex-col items-center justify-center mb-6">
+                                <div className="w-24 h-24 rounded-full bg-slate-100 mb-3 overflow-hidden border-4 border-white shadow-lg relative group">
+                                    {editForm.img_url ? (
+                                        <img src={editForm.img_url} alt="" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center text-slate-300">
+                                            <UserIcon size={40} />
+                                        </div>
+                                    )}
+                                </div>
+                                <p className="text-slate-400 text-xs text-center max-w-xs">
+                                    A foto de perfil é gerenciada externamente ou via URL
+                                </p>
+                            </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 {/* Username */}
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                                        <UserIcon size={16} className="text-blue-500" /> Nome Completo
-                                    </label>
-                                    <input
-                                        type="text"
-                                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm font-medium"
-                                        value={editForm.username || ''}
-                                        onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
-                                    />
+                                    <label className="text-sm font-medium text-slate-700">Nome Completo</label>
+                                    <div className="relative">
+                                        <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                        <input
+                                            type="text"
+                                            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
+                                            value={editForm.username || ''}
+                                            onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Email */}
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                                        <Mail size={16} className="text-blue-500" /> Email
-                                    </label>
-                                    <input
-                                        type="email"
-                                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
-                                        value={editForm.email || ''}
-                                        onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                                    />
-                                </div>
-
-                                {/* Created At - READ ONLY */}
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                                        <Calendar size={16} className="text-blue-500" /> Cadastrado em
-                                    </label>
-                                    <input
-                                        type="datetime-local"
-                                        disabled
-                                        className="w-full px-4 py-2 bg-slate-100 border border-slate-200 rounded-lg text-slate-500 text-sm cursor-not-allowed"
-                                        value={editForm.created_at ? new Date(editForm.created_at).toISOString().slice(0, 16) : ''}
-                                    />
+                                    <label className="text-sm font-medium text-slate-700">Email Corporativo</label>
+                                    <div className="relative">
+                                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                        <input
+                                            type="email"
+                                            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
+                                            value={editForm.email || ''}
+                                            onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Role */}
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                                        <Shield size={16} className="text-blue-500" /> Cargo
-                                    </label>
-                                    <select
-                                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
-                                        value={editForm.role_id || ''}
-                                        onChange={(e) => setEditForm({ ...editForm, role_id: Number(e.target.value) })}
-                                    >
-                                        <option value="">Selecione um cargo</option>
-                                        {roles.map(r => (
-                                            <option key={r.id} value={r.id}>{r.name_roles}</option>
-                                        ))}
-                                    </select>
+                                    <label className="text-sm font-medium text-slate-700">Cargo / Função</label>
+                                    <div className="relative">
+                                        <Shield className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                        <select
+                                            className="w-full pl-10 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm appearance-none"
+                                            value={editForm.role_id || ''}
+                                            onChange={(e) => setEditForm({ ...editForm, role_id: Number(e.target.value) })}
+                                        >
+                                            <option value="">Selecione...</option>
+                                            {roles.map(r => (
+                                                <option key={r.id} value={r.id}>{r.name_roles}</option>
+                                            ))}
+                                        </select>
+                                    </div>
                                 </div>
 
                                 {/* Sector */}
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                                        <Briefcase size={16} className="text-blue-500" /> Setor
-                                    </label>
-                                    <select
-                                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
-                                        value={editForm.sector_id || ''}
-                                        onChange={(e) => setEditForm({ ...editForm, sector_id: Number(e.target.value) })}
-                                    >
-                                        <option value="">Selecione um setor</option>
-                                        {sectors.map(s => (
-                                            <option key={s.id} value={s.id}>{s.sector_name}</option>
-                                        ))}
-                                    </select>
+                                    <label className="text-sm font-medium text-slate-700">Setor / Departamento</label>
+                                    <div className="relative">
+                                        <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                        <select
+                                            className="w-full pl-10 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm appearance-none"
+                                            value={editForm.sector_id || ''}
+                                            onChange={(e) => setEditForm({ ...editForm, sector_id: Number(e.target.value) })}
+                                        >
+                                            <option value="">Selecione...</option>
+                                            {sectors.map(s => (
+                                                <option key={s.id} value={s.id}>{s.sector_name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Created At (Read Only) */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-700">Cadastrado em</label>
+                                    <div className="relative">
+                                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                        <input
+                                            type="text" // Text because it's read-only
+                                            readOnly
+                                            disabled
+                                            className="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-lg text-slate-500 cursor-not-allowed text-sm font-mono"
+                                            value={editForm.created_at ? new Date(editForm.created_at).toLocaleDateString() : ''}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Acesso Medico */}
@@ -495,56 +533,63 @@ export const Usuarios: React.FC = () => {
                                         onChange={(e) => setEditForm({ ...editForm, acesso_med: Number(e.target.value) || null })}
                                     >
                                         <option value="">Sem Acesso Médico</option>
-                                        {/* Using 'acesso' column as confirmed by database screenshot */}
                                         {medProfiles.map(p => (
-                                            <option key={p.id} value={p.id}>
-                                                {p.acesso}
-                                            </option>
+                                            <option key={p.id} value={p.id}>{p.acesso}</option>
                                         ))}
                                     </select>
                                 </div>
-                            </div>
 
-                            {/* Lider Toggle */}
-                            <div className="flex items-center gap-4 p-4 border border-slate-100 rounded-xl bg-slate-50/50">
-                                <div className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors ${editForm.lider ? 'bg-amber-500' : 'bg-slate-300'}`} onClick={() => setEditForm({ ...editForm, lider: !editForm.lider })}>
-                                    <div className={`bg-white w-4 h-4 rounded-full shadow-sm transform transition-transform ${editForm.lider ? 'translate-x-4' : 'translate-x-0'}`}></div>
-                                </div>
-                                <div>
-                                    <p className="font-bold text-slate-700 text-sm flex items-center gap-2">
-                                        <Crown size={14} className={editForm.lider ? 'text-amber-500' : 'text-slate-400'} />
-                                        Cargo de Liderança
-                                    </p>
-                                    <p className="text-xs text-slate-500">Habilita permissões de gestão de equipe</p>
+                                {/* Leader Toggle */}
+                                <div className="col-span-1 md:col-span-2 pt-2">
+                                    <label className="flex items-center gap-3 p-4 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            checked={editForm.lider || false}
+                                            onChange={(e) => setEditForm({ ...editForm, lider: e.target.checked })}
+                                            className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 border-gray-300"
+                                        />
+                                        <div>
+                                            <span className="font-bold text-slate-800 text-sm block">Atribuir Perfil de Liderança</span>
+                                            <span className="text-xs text-slate-500">Permite acesso a dashboards de gestão e relatórios de equipe</span>
+                                        </div>
+                                    </label>
                                 </div>
                             </div>
                         </div>
 
                         {/* Footer */}
-                        <div className="p-6 border-t border-slate-100 flex justify-end gap-3 bg-slate-50/50 rounded-b-2xl">
+                        <div className="p-6 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl flex justify-between items-center">
                             <button
-                                onClick={() => setIsEditModalOpen(false)}
-                                className="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium text-sm transition-colors"
+                                onClick={handleDeleteUser}
+                                className="px-5 py-2.5 rounded-xl text-red-500 font-medium hover:bg-red-50 border border-transparent hover:border-red-100 transition-all text-sm flex items-center gap-2"
                             >
-                                Cancelar
+                                <Trash2 size={18} />
+                                Apagar Perfil
                             </button>
-                            <button
-                                onClick={handleSaveUser}
-                                disabled={isSaving}
-                                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-xl font-bold text-sm shadow-sm shadow-blue-500/20 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {isSaving ? 'Salvando...' : (
-                                    <>
-                                        <Save size={18} /> Salvar Alterações
-                                    </>
-                                )}
-                            </button>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setIsEditModalOpen(false)}
+                                    className="px-5 py-2.5 rounded-xl text-slate-600 font-medium hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all text-sm"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={handleSaveUser}
+                                    disabled={isSaving}
+                                    className="bg-blue-600 text-white px-8 py-2.5 rounded-xl font-bold hover:bg-blue-700 active:scale-95 transition-all shadow-lg shadow-blue-500/20 flex items-center gap-2 text-sm disabled:opacity-70 disabled:cursor-not-allowed"
+                                >
+                                    {isSaving ? 'Salvando...' : (
+                                        <>
+                                            <Save size={18} />
+                                            Salvar Alterações
+                                        </>
+                                    )}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
         </div>
     );
-};
-
-export default Usuarios;
+}
