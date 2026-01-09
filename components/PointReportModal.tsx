@@ -84,42 +84,54 @@ export const PointReportModal: React.FC<PointReportModalProps> = ({ isOpen, onCl
             const rangeStart = parseISO(startDate);
             const rangeEnd = parseISO(endDate);
             const daysInRange = eachDayOfInterval({ start: rangeStart, end: rangeEnd });
-            const businessDaysCount = daysInRange.filter(day => !isWeekend(day)).length;
+            const businessDaysCount = daysInRange.filter(day => {
+                const dayOfWeek = day.getDay();
+                // 0 is Sunday, 6 is Saturday. We want 1-5 (Mon-Fri).
+                return dayOfWeek !== 0 && dayOfWeek !== 6;
+            }).length;
             const targetMinutes = businessDaysCount * (8 * 60 + 45); // 8h 45m per business day
 
-            // Process per user
+            // Custom Sort Function
+            const typePriority: { [key: string]: number } = {
+                'Entrada': 1,
+                'Saída para almoço': 2,
+                'Volta do almoço': 3,
+                'Fim de expediente': 4
+            };
+
             const processedReports: UserReport[] = users.map(user => {
                 const userPoints = records.filter(p => p.user_id === user.user_id);
-                // Sort by Order if available, else created_at (already sorted)
-                if (userPoints.length > 0 && userPoints[0].ordem !== undefined) {
-                    userPoints.sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
-                }
 
-                // Calculate Total Hours
-                // Assuming pairs: Entry-Exit. 
-                // We need to group by Day first to be accurate? 
-                // Usually points are linear: In, Out, In, Out.
-                // If we just sort by time:
-                // Diff(1,0) + Diff(3,2) ... using index. 
-                // Note: This matches "ordem" logic usually (1=In, 2=Out).
+                // Sort by Date ASC, then by Type Priority
+                userPoints.sort((a, b) => {
+                    const dateA = parseISO(a.datahora);
+                    const dateB = parseISO(b.datahora);
 
+                    // 1. Compare Days
+                    const dayDiff = startOfDay(dateA).getTime() - startOfDay(dateB).getTime();
+                    if (dayDiff !== 0) return dayDiff;
+
+                    // 2. Compare Type Priority
+                    const typeA = typePriority[a.tipo || ''] || 99;
+                    const typeB = typePriority[b.tipo || ''] || 99;
+
+                    if (typeA !== typeB) return typeA - typeB;
+
+                    // 3. Fallback to time if types are same or unknown
+                    return dateA.getTime() - dateB.getTime();
+                });
+
+                // Calculate Total Hours logic remains...
                 let totalMin = 0;
                 let validDays = new Set<string>();
-
-                // Group by day to handle daily stats?
-                // Or just simple linear pairs? 
-                // Let's assume linear pairs across the sorted list for simplicity, 
-                // but checking they are on same day is safer.
 
                 for (let i = 0; i < userPoints.length - 1; i += 2) {
                     const startP = userPoints[i];
                     const endP = userPoints[i + 1];
 
-                    // Basic sanity check: must be same day?
-                    // Allow overnight? Probably not for this basic system.
-                    // Let's just diff them.
+                    // Basic pair check logic
                     const diff = differenceInMinutes(parseISO(endP.datahora), parseISO(startP.datahora));
-                    if (diff > 0 && diff < 24 * 60) { // Reject huge diffs (missed punch)
+                    if (diff > 0 && diff < 24 * 60) {
                         totalMin += diff;
                         validDays.add(format(parseISO(startP.datahora), 'yyyy-MM-dd'));
                     }
