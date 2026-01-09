@@ -224,7 +224,14 @@ export const PointReportModal: React.FC<PointReportModalProps> = ({ isOpen, onCl
                                         <input
                                             type="date"
                                             value={startDate}
-                                            onChange={e => setStartDate(e.target.value)}
+                                            onChange={e => {
+                                                const date = parseISO(e.target.value);
+                                                if (isWeekend(date)) {
+                                                    alert("Finais de semana não podem ser selecionados como data de início.");
+                                                    return;
+                                                }
+                                                setStartDate(e.target.value);
+                                            }}
                                             className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
                                         />
                                     </div>
@@ -236,12 +243,22 @@ export const PointReportModal: React.FC<PointReportModalProps> = ({ isOpen, onCl
                                         <input
                                             type="date"
                                             value={endDate}
-                                            onChange={e => setEndDate(e.target.value)}
+                                            onChange={e => {
+                                                const date = parseISO(e.target.value);
+                                                if (isWeekend(date)) {
+                                                    alert("Finais de semana não podem ser selecionados como data final.");
+                                                    return;
+                                                }
+                                                setEndDate(e.target.value);
+                                            }}
                                             className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
                                         />
                                     </div>
                                 </div>
                             </div>
+                            <p className="text-xs text-slate-400 text-center -mt-2">
+                                * Sabádos e Domingos são desconsiderados automaticamente do cálculo.
+                            </p>
 
                             <button
                                 onClick={generateReport}
