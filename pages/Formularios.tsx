@@ -2101,6 +2101,46 @@ export const Formularios: React.FC = () => {
                                     </ul>
                                 </div>
                             </div>
+
+                            {/* 3. Resultados por Item (diagnóstico detalhado) */}
+                            <div className="mb-8">
+                                <h2 className="text-lg font-bold text-blue-800 mb-3">3. Resultados por Item (diagnóstico detalhado)</h2>
+                                <div className="space-y-6">
+                                    {Object.entries(diagnosticData.reduce((acc, item) => {
+                                        const dimId = item.dimensao_id;
+                                        if (!acc[dimId]) acc[dimId] = [];
+                                        acc[dimId].push(item);
+                                        return acc;
+                                    }, {} as Record<number, HSEDiagnosticItem[]>)).map(([dimId, items]) => {
+                                        const typedItems = items as HSEDiagnosticItem[];
+                                        const firstItem = typedItems[0];
+                                        const dimName = firstItem.dimensao;
+                                        const dimMeta = hseDimensions.find(d => d.id === Number(dimId));
+                                        const isPositive = dimMeta ? dimMeta.is_positive : false;
+
+                                        return (
+                                            <div key={dimId} className="break-inside-avoid">
+                                                <h3 className="font-bold text-slate-800 mb-2 border-b border-slate-200 pb-1">
+                                                    Dimensão {dimName} <span className="text-sm font-normal text-slate-500">({isPositive ? 'quanto maior, melhor' : 'quanto menor, melhor'})</span>
+                                                </h3>
+                                                <ul className="list-none space-y-1 pl-0 text-sm">
+                                                    {typedItems.map((item, idx) => {
+                                                        const qIndex = questions.findIndex(q => q.label === item.texto_pergunta);
+                                                        const qNum = qIndex !== -1 ? String(qIndex + 1).padStart(2, '0') : '??';
+
+                                                        return (
+                                                            <li key={idx} className="text-slate-700">
+                                                                <span className="font-mono text-slate-500 mr-1">{qNum}.</span>
+                                                                {item.texto_pergunta}: <span className="font-medium">{item.texto_risco_completo || 'N/A'}</span> <span className="text-slate-500">({Number(item.media_valor).toFixed(2)})</span>
+                                                            </li>
+                                                        );
+                                                    })}
+                                                </ul>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         </div>
                     </Modal>
 
