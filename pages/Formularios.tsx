@@ -13,6 +13,15 @@ import { Form, FormQuestion, FormAnswer, HSEDimension, QuestionType, HSERule, HS
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
+interface HSEAnalysis {
+    form_id: number;
+    dimensao_id: number;
+    dimensao_nome: string;
+    media_dimensao: number;
+    texto_risco_dimensao: string;
+    texto_analise: string;
+}
+
 
 
 /* --- Internal UI Components --- */
@@ -505,6 +514,9 @@ export const Formularios: React.FC = () => {
     const [hseDimensions, setHseDimensions] = useState<HSEDimension[]>([]);
     const [hseQuestions, setHseQuestions] = useState<FormQuestion[]>([]);
     const [hseRules, setHseRules] = useState<HSERule[]>([]);
+    const [hseAnalytics, setHseAnalytics] = useState<HSEAnalysis[]>([]);
+
+    // Auth & Initial Load
     const [hseActiveTab, setHseActiveTab] = useState<'associations' | 'rules'>('associations');
     const [loadingHse, setLoadingHse] = useState(false);
     const [expandedDimensions, setExpandedDimensions] = useState<Set<number>>(new Set());
@@ -870,7 +882,9 @@ export const Formularios: React.FC = () => {
                     active: false, // Default to inactive
                     // No empresa column in forms
                     unidade_id: form.unidade_id,
-                    setor: form.setor
+                    setor: form.setor,
+                    // Mock HSE ID if original had one - STRICT MOCK REQUIREMENT
+                    hse_id: form.hse_id ? Math.floor(Math.random() * 900000) + 100000 : undefined
                 })
                 .select()
                 .single();
@@ -938,24 +952,10 @@ export const Formularios: React.FC = () => {
         };
 
         // Handle HSE Report Creation if Psicosocial is checked
+        // USER REQUEST: Skip using form_hse_reports table for now but MUST HAVE ID.
         if (isPsicosocial && !formData.hse_id) {
-            try {
-                const { data: hseData, error: hseError } = await supabase
-                    .from('form_hse_reports')
-                    .insert({ status: 'aberto' }) // defaults will handle the rest
-                    .select()
-                    .single();
-
-                if (hseError) throw hseError;
-                if (hseData) formData.hse_id = hseData.id;
-            } catch (err) {
-                console.error("Error creating HSE report:", err);
-                alert("Erro ao criar relatório Psicosocial. O formulário será salvo sem ele.");
-            }
-        } else if (!isPsicosocial && formData.hse_id) {
-            // Optional: Remove HSE link if unchecked? 
-            // For now, we just keep it or set null if desired. user didn't specify.
-            // Leaving as is to avoid data loss.
+            // MOCK ID GENERATION
+            formData.hse_id = Math.floor(Math.random() * 900000) + 100000;
         }
 
         if (formId) {
@@ -1119,6 +1119,40 @@ export const Formularios: React.FC = () => {
             .order('question_order');
         setQuestions(qData || []);
 
+        // Fetch Answers
+        const { data: aData } = await supabase
+            .from('form_answers')
+            .select('*')
+            .eq('form_id', form.id)
+            .order('created_at', { ascending: false });
+
+        if (aData && aData.length > 0) {
+            setAnswers(aData);
+            const userIds = [...new Set(aData.map((a: any) => a.respondedor).filter(Boolean))];
+
+            if (userIds.length > 0) {
+                console.log('Fetching metadata for Responders (colaboradores table):', userIds);
+                const { data: usersData, error: metaError } = await supabase
+                    .from('colaboradores')
+                    .select('id, nome, setor, cargo, cargos(nome)')
+                    .in('id', userIds);
+
+                console.log('Metadata Users Data:', usersData, 'Error:', metaError);
+
+                if (usersData) {
+                    const meta: Record<string, { nome: string; setor: string; cargo: string }> = {};
+                    usersData.forEach((u: any) => {
+                        // Handle nested cargo object if join works
+                        const cargoName = u.cargos?.nome || (typeof u.cargos === 'object' ? u.cargos.nome : null) || (u.cargo ? `Cargo ${u.cargo}` : '-');
+                        meta[u.id] = { nome: u.nome, setor: u.setor || '-', cargo: cargoName };
+                    });
+                    setRespondentMetadata(meta);
+                }
+            }
+        } else {
+            setAnswers([]);
+        }
+
         // Fetch Diagnostic Data if HSE form
         if (form.hse_id) {
             console.log('Fetching diagnostic data for HSE Form ID:', form.id);
@@ -1158,6 +1192,31 @@ export const Formularios: React.FC = () => {
                     setHseRules([]);
                 }
             }
+
+            try {
+                if (aData && aData.length > 0) {
+                    const formId = aData[0].form_id;
+
+                    // 1. Fetch Diagnostic Data (Questions & Dimensions)
+                    const { data: diagData, error: diagError } = await supabase
+                        .rpc('get_hse_diagnostic_data', { p_form_id: formId });
+
+                    if (diagError) console.error('Error fetching diagnostic data:', diagError);
+                    else setDiagnosticData(diagData || []);
+
+                    // 2. Fetch Analysis View (Dimensions Risk)
+                    const { data: analysisData, error: analysisError } = await supabase
+                        .from('view_hse_analise_dimensoes')
+                        .select('*')
+                        .eq('form_id', formId);
+
+                    if (analysisError) console.error('Error fetching analysis view:', analysisError);
+                    else setHseAnalytics(analysisData || []);
+                }
+            } catch (error) {
+                console.error('Error fetching HSE analysis data:', error);
+            }
+
 
             const { data: dd, error: ddError } = await supabase
                 .from('view_hse_analise_itens')
@@ -1221,40 +1280,6 @@ export const Formularios: React.FC = () => {
             setInterpretativeText('');
             setActionPlanText('');
             setConclusionText('');
-        }
-
-        // Fetch Answers
-        const { data: aData } = await supabase
-            .from('form_answers')
-            .select('*')
-            .eq('form_id', form.id)
-            .order('created_at', { ascending: false });
-
-        if (aData && aData.length > 0) {
-            setAnswers(aData);
-            const userIds = [...new Set(aData.map((a: any) => a.respondedor).filter(Boolean))];
-
-            if (userIds.length > 0) {
-                console.log('Fetching metadata for Responders (colaboradores table):', userIds);
-                const { data: usersData, error: metaError } = await supabase
-                    .from('colaboradores')
-                    .select('id, nome, setor, cargo, cargos(nome)')
-                    .in('id', userIds);
-
-                console.log('Metadata Users Data:', usersData, 'Error:', metaError);
-
-                if (usersData) {
-                    const meta: Record<string, { nome: string; setor: string; cargo: string }> = {};
-                    usersData.forEach((u: any) => {
-                        // Handle nested cargo object if join works
-                        const cargoName = u.cargos?.nome || (typeof u.cargos === 'object' ? u.cargos.nome : null) || (u.cargo ? `Cargo ${u.cargo}` : '-');
-                        meta[u.id] = { nome: u.nome, setor: u.setor || '-', cargo: cargoName };
-                    });
-                    setRespondentMetadata(meta);
-                }
-            }
-        } else {
-            setAnswers([]);
         }
 
         // Fetch Employee Data for Comparison
@@ -2310,28 +2335,43 @@ export const Formularios: React.FC = () => {
                                         // Filter items
                                         const typedItems = diagnosticData.filter(item => item.dimensao_id === dimId);
 
-                                        // Calc Average
+                                        // Calc Average (fallback)
                                         let avgDim = 0;
                                         if (typedItems.length > 0) {
                                             const totalMedia = typedItems.reduce((sum, i) => sum + (Number(i.media_valor) || 0), 0);
                                             avgDim = totalMedia / typedItems.length;
                                         }
 
+                                        // Try to get from View first
+                                        const analysisItem = hseAnalytics.find(a => a.dimensao_id === dimId);
+                                        // Use view data if available, else calc
+                                        const finalAvg = analysisItem ? Number(analysisItem.media_dimensao) : avgDim;
+                                        const finalRiskText = analysisItem ? analysisItem.texto_risco_dimensao : '';
+
                                         // Determine Risk Label & Color
-                                        let riskLabel = '';
+                                        let riskLabel = finalRiskText || '';
                                         let riskColor = '';
 
-                                        // Logic: Text colors for the words
-                                        if (avgDim <= 1) { riskLabel = 'baixo'; riskColor = 'text-emerald-600 font-bold'; }
-                                        else if (avgDim <= 2) { riskLabel = 'médio'; riskColor = 'text-cyan-600 font-bold'; }
-                                        else if (avgDim <= 3) { riskLabel = 'moderado'; riskColor = 'text-yellow-600 font-bold'; }
-                                        else { riskLabel = 'alto'; riskColor = 'text-red-600 font-bold'; }
+                                        // Fallback calculation if View is empty (or for coloring logic)
+                                        // Map text to color
+                                        const lowerRisk = riskLabel.toLowerCase().trim();
+                                        if (lowerRisk === 'baixo') riskColor = 'text-emerald-600 font-bold';
+                                        else if (lowerRisk === 'médio') riskColor = 'text-cyan-600 font-bold';
+                                        else if (lowerRisk === 'moderado') riskColor = 'text-yellow-600 font-bold';
+                                        else if (lowerRisk === 'alto') riskColor = 'text-red-600 font-bold';
+                                        else {
+                                            // Fallback Logic if text is missing or unknown
+                                            if (finalAvg <= 1) { riskLabel = 'baixo'; riskColor = 'text-emerald-600 font-bold'; }
+                                            else if (finalAvg <= 2) { riskLabel = 'médio'; riskColor = 'text-cyan-600 font-bold'; }
+                                            else if (finalAvg <= 3) { riskLabel = 'moderado'; riskColor = 'text-yellow-600 font-bold'; }
+                                            else { riskLabel = 'alto'; riskColor = 'text-red-600 font-bold'; }
+                                        }
 
                                         return (
                                             <React.Fragment key={dimId || index}>
                                                 <div className="py-1 text-slate-800">{dimName}</div>
                                                 <div className="py-1 text-slate-800">
-                                                    <span className={riskColor}>{riskLabel}</span> risco de exposição ({avgDim.toFixed(2)})
+                                                    <span className={riskColor}>{riskLabel}</span> risco de exposição ({finalAvg.toFixed(2)})
                                                 </div>
                                             </React.Fragment>
                                         );
@@ -2765,26 +2805,40 @@ export const Formularios: React.FC = () => {
                                 const dimMeta = hseDimensions.find(d => d.id === Number(dimId));
                                 const isPositive = dimMeta?.is_positive;
 
-                                // Calculate Dimension Average
+                                // Calculate Dimension Average (fallback)
                                 const dimAverage = typedItems.reduce((sum, i) => sum + (Number(i.media_valor) || 0), 0) / typedItems.length;
 
-                                const getRiskAnalysis = (score: number, isPos: boolean | undefined) => {
+                                // Try to get Correct Risk from View
+                                const analysisItem = hseAnalytics.find(a => a.dimensao_id === Number(dimId));
+                                const finalAvg = analysisItem ? Number(analysisItem.media_dimensao) : dimAverage;
+                                const finalRiskText = analysisItem ? analysisItem.texto_risco_dimensao : '';
+
+                                const getRiskColor = (label: string, score: number, isPos: boolean | undefined) => {
+                                    const lower = label.toLowerCase().trim();
+                                    if (lower === 'baixo') return 'text-green-700 bg-green-50 border-green-200';
+                                    if (lower === 'médio') return 'text-cyan-700 bg-cyan-50 border-cyan-200';
+                                    if (lower === 'moderado') return 'text-amber-700 bg-amber-50 border-amber-200';
+                                    if (lower === 'alto') return 'text-red-700 bg-red-50 border-red-200';
+
+                                    // Fallback if no label (calc locally)
                                     if (isPos) {
-                                        // INVERTED: Higher score = Lower Risk
-                                        if (score >= 3) return { label: 'baixo', color: 'text-green-700 bg-green-50 border-green-200' };
-                                        if (score >= 2) return { label: 'médio', color: 'text-cyan-700 bg-cyan-50 border-cyan-200' };
-                                        if (score >= 1) return { label: 'moderado', color: 'text-amber-700 bg-amber-50 border-amber-200' };
-                                        return { label: 'alto', color: 'text-red-700 bg-red-50 border-red-200' };
+                                        if (score >= 3) return 'text-green-700 bg-green-50 border-green-200';
+                                        if (score >= 2) return 'text-cyan-700 bg-cyan-50 border-cyan-200';
+                                        if (score >= 1) return 'text-amber-700 bg-amber-50 border-amber-200';
+                                        return 'text-red-700 bg-red-50 border-red-200';
                                     } else {
-                                        // STANDARD: Lower score = Lower Risk
-                                        if (score <= 1) return { label: 'baixo', color: 'text-green-700 bg-green-50 border-green-200' };
-                                        if (score <= 2) return { label: 'médio', color: 'text-cyan-700 bg-cyan-50 border-cyan-200' };
-                                        if (score <= 3) return { label: 'moderado', color: 'text-amber-700 bg-amber-50 border-amber-200' };
-                                        return { label: 'alto', color: 'text-red-700 bg-red-50 border-red-200' };
+                                        if (score <= 1) return 'text-green-700 bg-green-50 border-green-200';
+                                        if (score <= 2) return 'text-cyan-700 bg-cyan-50 border-cyan-200';
+                                        if (score <= 3) return 'text-amber-700 bg-amber-50 border-amber-200';
+                                        return 'text-red-700 bg-red-50 border-red-200';
                                     }
                                 };
 
-                                const analysis = getRiskAnalysis(dimAverage, isPositive);
+                                const riskLabel = finalRiskText || (isPositive
+                                    ? (dimAverage >= 3 ? 'baixo' : dimAverage >= 2 ? 'médio' : dimAverage >= 1 ? 'moderado' : 'alto')
+                                    : (dimAverage <= 1 ? 'baixo' : dimAverage <= 2 ? 'médio' : dimAverage <= 3 ? 'moderado' : 'alto'));
+
+                                const riskColor = getRiskColor(riskLabel, finalAvg, isPositive);
 
                                 return (
                                     <div id={`dim-${dimId}`} key={dimId} className="bg-white rounded-2xl border border-slate-200 shadow-sm scroll-mt-20 overflow-visible">
@@ -2792,8 +2846,8 @@ export const Formularios: React.FC = () => {
                                             <div>
                                                 <div className="flex items-center gap-3 mb-1">
                                                     <h3 className="text-lg font-bold text-slate-800">Dimensão {dimName}</h3>
-                                                    <span className={`text-[11px] px-2 py-0.5 rounded-full border font-bold uppercase tracking-wide ${analysis.color}`}>
-                                                        {analysis.label} risco de exposição ({dimAverage.toFixed(2)})
+                                                    <span className={`text-[11px] px-2 py-0.5 rounded-full border font-bold uppercase tracking-wide ${riskColor}`}>
+                                                        {riskLabel} risco de exposição ({finalAvg.toFixed(2)})
                                                     </span>
                                                 </div>
                                                 <p className={`text-xs font-semibold ${isPositive ? 'text-blue-600' : 'text-orange-600'}`}>
@@ -2801,7 +2855,7 @@ export const Formularios: React.FC = () => {
                                                 </p>
                                             </div>
                                             <div className="text-right">
-                                                <span className="block text-2xl font-bold text-slate-800">{dimAverage.toFixed(2)}</span>
+                                                <span className="block text-2xl font-bold text-slate-800">{finalAvg.toFixed(2)}</span>
                                                 <span className="text-xs text-slate-400 font-medium uppercase">Média Geral</span>
                                             </div>
                                         </div>
@@ -4011,8 +4065,5 @@ export const Formularios: React.FC = () => {
         </div>
     );
 };
+
 export default Formularios;
-
-
-
-
