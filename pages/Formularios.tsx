@@ -2235,16 +2235,16 @@ export const Formularios: React.FC = () => {
                                     <p className="font-bold mb-2">Classificação por média:</p>
                                     <ul className="list-none space-y-1 pl-0 font-medium">
                                         <li className="flex items-center gap-2">
-                                            - 0 a 1: <span className="bg-emerald-400 text-black px-1">baixo</span>
+                                            - 0 a 1: <span className="text-emerald-600 font-bold">baixo</span>
                                         </li>
                                         <li className="flex items-center gap-2">
-                                            - &gt;1 a 2: <span className="bg-cyan-400 text-black px-1">médio</span>
+                                            - &gt;1 a 2: <span className="text-cyan-600 font-bold">médio</span>
                                         </li>
                                         <li className="flex items-center gap-2">
-                                            - &gt;2 a 3: <span className="bg-yellow-300 text-black px-1">moderado</span>
+                                            - &gt;2 a 3: <span className="text-yellow-600 font-bold">moderado</span>
                                         </li>
                                         <li className="flex items-center gap-2">
-                                            - &gt;3 a 4: <span className="bg-red-600 text-white px-1">alto</span>
+                                            - &gt;3 a 4: <span className="text-red-600 font-bold">alto</span>
                                         </li>
                                     </ul>
                                 </div>
@@ -2321,19 +2321,17 @@ export const Formularios: React.FC = () => {
                                         let riskLabel = '';
                                         let riskColor = '';
 
-                                        // Logic: using original bg colors but applying to text span
-                                        if (avgDim <= 1) { riskLabel = 'baixo'; riskColor = 'bg-green-400'; } // Image shows bright green
-                                        else if (avgDim <= 2) { riskLabel = 'médio'; riskColor = 'bg-cyan-300'; } // Image shows cyan
-                                        else if (avgDim <= 3) { riskLabel = 'moderado'; riskColor = 'bg-yellow-200'; }
-                                        else { riskLabel = 'alto'; riskColor = 'bg-red-400'; }
+                                        // Logic: Text colors for the words
+                                        if (avgDim <= 1) { riskLabel = 'baixo'; riskColor = 'text-emerald-600 font-bold'; }
+                                        else if (avgDim <= 2) { riskLabel = 'médio'; riskColor = 'text-cyan-600 font-bold'; }
+                                        else if (avgDim <= 3) { riskLabel = 'moderado'; riskColor = 'text-yellow-600 font-bold'; }
+                                        else { riskLabel = 'alto'; riskColor = 'text-red-600 font-bold'; }
 
                                         return (
                                             <React.Fragment key={dimId || index}>
                                                 <div className="py-1 text-slate-800">{dimName}</div>
-                                                <div className="py-1">
-                                                    <span className={`${riskColor} px-1 py-0.5 text-black`}>
-                                                        {riskLabel} risco de exposição ({avgDim.toFixed(2)})
-                                                    </span>
+                                                <div className="py-1 text-slate-800">
+                                                    <span className={riskColor}>{riskLabel}</span> risco de exposição ({avgDim.toFixed(2)})
                                                 </div>
                                             </React.Fragment>
                                         );
