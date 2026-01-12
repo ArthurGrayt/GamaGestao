@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useState } from 'react';
 import { FilterContext } from '../layouts/MainLayout';
 import { KPICard } from '../components/KPICard';
 import { supabase } from '../services/supabase';
-import { FileText, Clock, CheckCircle, XCircle, PieChart as PieChartIcon, BarChart3, TrendingUp, Layers, Package } from 'lucide-react';
+import { FileText, Clock, CheckCircle, XCircle, PieChart as PieChartIcon, BarChart3, TrendingUp, Layers, Package, X, Building2 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 interface ItemStat {
@@ -19,14 +19,117 @@ export const Comercial: React.FC = () => {
     backlog: { current: 0, prev: 0 }, // Cumulative Pending
     approved: { current: 0, prev: 0 }, // Period Approved
     rejected: { current: 0, prev: 0 }, // Period Rejected
+    totalApprovedValue: { current: 0, prev: 0 }, // New: Value of Approved Items
   });
 
   const [chartData, setChartData] = useState<any[]>([]);
   const [itemStats, setItemStats] = useState<{
-    topFreq: ItemStat[];
     topApproved: ItemStat[];
     topRejected: ItemStat[];
   }>({ topFreq: [], topApproved: [], topRejected: [] });
+
+  // Modal State
+  const [showApprovedModal, setShowApprovedModal] = useState(false);
+  const [approvedDetails, setApprovedDetails] = useState<any[]>([]);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+
+  // Handler to fetch and show details
+  const handleShowApprovedDetails = async () => {
+    setShowApprovedModal(true);
+    setLoadingDetails(true);
+    try {
+      const startDate = filter.startDate.toISOString();
+      const endDate = filter.endDate.toISOString();
+
+      // 1. Fetch Proposals in Period
+      const { data: proposals, error: propError } = await supabase
+        .from('proposta')
+        .select('id, created_at, unidade_id, itensproposta')
+        .gte('created_at', startDate)
+        .lte('created_at', endDate);
+
+      if (propError) throw propError;
+      if (!proposals || proposals.length === 0) {
+        setApprovedDetails([]);
+        setLoadingDetails(false);
+        return;
+      }
+
+      // 2. Fetch Units
+      const unitIds = [...new Set(proposals.map(p => p.unidade_id).filter(Boolean))];
+      let unitsMap: Record<number, string> = {};
+      if (unitIds.length > 0) {
+        const { data: units } = await supabase
+          .from('unidades')
+          .select('id, nome_unidade')
+          .in('id', unitIds);
+
+        if (units) {
+          units.forEach((u: any) => unitsMap[u.id] = u.nome_unidade);
+        }
+      }
+
+      // 3. Fetch All Relevant Items
+      const allItemIds: number[] = [];
+      proposals.forEach(p => {
+        if (Array.isArray(p.itensproposta)) allItemIds.push(...p.itensproposta);
+      });
+
+      let itemsMap: Record<number, any> = {};
+      if (allItemIds.length > 0) {
+        const { data: items } = await supabase
+          .from('itensproposta')
+          .select('id, status, preco, quantidade, idprocedimento, procedimento(nome)')
+          .in('id', [...new Set(allItemIds)]);
+
+        if (items) {
+          items.forEach((i: any) => itemsMap[i.id] = i);
+        }
+      }
+
+      // 4. Group and Build Result
+      const results: any[] = [];
+      proposals.forEach(p => {
+        const unitName = unitsMap[p.unidade_id] || 'Unidade Desconhecida';
+
+        const approvedItems: any[] = [];
+        if (Array.isArray(p.itensproposta)) {
+          p.itensproposta.forEach((itemId: number) => {
+            const item = itemsMap[itemId];
+            if (item) {
+              const s = (item.status || '').toUpperCase();
+              if (s === 'APPROVED' || s === 'APROVADO') {
+                approvedItems.push({
+                  ...item,
+                  name: item.procedimento?.nome || 'Item sem nome',
+                  total: (item.preco || 0) * (item.quantidade || 1)
+                });
+              }
+            }
+          });
+        }
+
+        if (approvedItems.length > 0) {
+          results.push({
+            proposal_id: p.id,
+            created_at: p.created_at,
+            unit_name: unitName,
+            items: approvedItems,
+            total_value: approvedItems.reduce((sum, i) => sum + i.total, 0)
+          });
+        }
+      });
+
+      // Sort by date desc
+      results.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      setApprovedDetails(results);
+
+    } catch (err) {
+      console.error("Error fetching approved details:", err);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -56,6 +159,43 @@ export const Comercial: React.FC = () => {
           return count || 0;
         };
 
+        // Helper to fetch total value of approved items
+        const getTotalApprovedValue = async (start: string, end: string) => {
+          // 1. Get Proposals in range to find relevant items
+          const { data: proposals } = await supabase
+            .from('proposta')
+            .select('itensproposta')
+            .gte('created_at', start)
+            .lte('created_at', end);
+
+          if (!proposals || proposals.length === 0) return 0;
+
+          // 2. Collect all item IDs
+          const allItemIds: number[] = [];
+          proposals.forEach((p: any) => {
+            if (Array.isArray(p.itensproposta)) allItemIds.push(...p.itensproposta);
+          });
+
+          if (allItemIds.length === 0) return 0;
+
+          // 3. Fetch Items that are APPROVED
+          const { data: items } = await supabase
+            .from('itensproposta')
+            .select('preco, quantidade, status')
+            .in('id', [...new Set(allItemIds)]); // Dedup just in case
+
+          if (!items) return 0;
+
+          // 4. Sum Value (Price * Qty) of APPROVED items
+          return items.reduce((sum, item) => {
+            const s = (item.status || '').toUpperCase();
+            if (s === 'APPROVED' || s === 'APROVADO') {
+              return sum + ((item.preco || 0) * (item.quantidade || 1));
+            }
+            return sum;
+          }, 0);
+        };
+
         // --- Current Period & Statuses ---
         const [
           allTimeCurrent,
@@ -63,14 +203,16 @@ export const Comercial: React.FC = () => {
           periodPending,
           periodApproved,
           periodRejected,
-          backlogCurrent
+          backlogCurrent,
+          periodValue // Total Value Current
         ] = await Promise.all([
-          getCount(null, endDate), // Total All Time (Cumulative up to now)
+          getCount(null, endDate), // Total All Time
           getCount(startDate, endDate), // Total In Period
-          getCount(startDate, endDate, 'PENDING'), // Pending IN PERIOD (For Chart)
-          getCount(startDate, endDate, 'APPROVED'), // Approved IN PERIOD
-          getCount(startDate, endDate, 'REJECTED'), // Rejected IN PERIOD
-          getCount(null, endDate, 'PENDING') // Backlog (Cumulative Pending)
+          getCount(startDate, endDate, 'PENDING'),
+          getCount(startDate, endDate, 'APPROVED'),
+          getCount(startDate, endDate, 'REJECTED'),
+          getCount(null, endDate, 'PENDING'),
+          getTotalApprovedValue(startDate, endDate)
         ]);
 
         // --- Previous Period ---
@@ -79,13 +221,15 @@ export const Comercial: React.FC = () => {
           prevPeriodTotal,
           prevApproved,
           prevRejected,
-          backlogPrev
+          backlogPrev,
+          prevValue // Total Value Previous
         ] = await Promise.all([
           getCount(null, prevEnd),
           getCount(prevStart, prevEnd),
           getCount(prevStart, prevEnd, 'APPROVED'),
           getCount(prevStart, prevEnd, 'REJECTED'),
-          getCount(null, prevEnd, 'PENDING')
+          getCount(null, prevEnd, 'PENDING'),
+          getTotalApprovedValue(prevStart, prevEnd)
         ]);
 
         setData({
@@ -94,6 +238,7 @@ export const Comercial: React.FC = () => {
           backlog: { current: backlogCurrent, prev: backlogPrev },
           approved: { current: periodApproved, prev: prevApproved },
           rejected: { current: periodRejected, prev: prevRejected },
+          totalApprovedValue: { current: periodValue, prev: prevValue },
         });
 
         // --- Chart Data (Distribution of Proposals Created IN PERIOD) ---
@@ -265,6 +410,17 @@ export const Comercial: React.FC = () => {
               icon={<XCircle size={20} />}
               color="danger"
             />
+            {/* 6. Total Approved Value (New) */}
+            <div onClick={handleShowApprovedDetails} className="cursor-pointer transition-transform active:scale-95">
+              <KPICard
+                title="Valor Acumulado (Aprovado)"
+                value={data.totalApprovedValue.current.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                prevValue={data.totalApprovedValue.prev.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                isLoading={loading}
+                icon={<TrendingUp size={20} />}
+                color="success"
+              />
+            </div>
           </div>
 
           {/* Item Analysis Section */}
@@ -391,6 +547,90 @@ export const Comercial: React.FC = () => {
         </div>
 
       </div>
-    </div>
+
+      {/* Approved Items Detail Modal */}
+      {
+        showApprovedModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl">
+              <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-white rounded-t-2xl">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Detalhamento de Valor Aprovado</h3>
+                  <p className="text-sm text-slate-500">Listagem de itens aprovados por proposta no período</p>
+                </div>
+                <button onClick={() => setShowApprovedModal(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-red-500 transition-colors">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
+                {loadingDetails ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                    <div className="w-8 h-8 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mb-3"></div>
+                    <p>Carregando detalhes...</p>
+                  </div>
+                ) : approvedDetails.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">
+                    <Package size={48} className="mb-2 opacity-20" />
+                    <p>Nenhum item aprovado encontrado neste período.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {approvedDetails.map((prop, idx) => (
+                      <div key={idx} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex justify-between items-center">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-white border border-slate-200 rounded-lg">
+                              <Building2 size={16} className="text-blue-600" />
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-slate-700 text-sm">{prop.unit_name}</h4>
+                              <p className="text-xs text-slate-500">Proposta #{prop.proposal_id.toString().slice(0, 8)} • {new Date(prop.created_at).toLocaleDateString()}</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="block text-sm font-bold text-emerald-600">
+                              {prop.total_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </span>
+                            <span className="text-[10px] text-emerald-600/70 font-medium uppercase bg-emerald-50 px-1.5 py-0.5 rounded">Total Aprovado</span>
+                          </div>
+                        </div>
+
+                        <div className="p-0">
+                          <table className="w-full text-sm text-left">
+                            <thead className="text-xs text-slate-500 uppercase bg-slate-50/50 border-b border-slate-100">
+                              <tr>
+                                <th className="px-4 py-2 font-medium">Item</th>
+                                <th className="px-4 py-2 font-medium text-right">Qtd</th>
+                                <th className="px-4 py-2 font-medium text-right">Preço Unit.</th>
+                                <th className="px-4 py-2 font-medium text-right">Subtotal</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                              {prop.items.map((item: any, iIdx: number) => (
+                                <tr key={iIdx} className="hover:bg-slate-50/80 transition-colors">
+                                  <td className="px-4 py-2.5 text-slate-700 font-medium">{item.name}</td>
+                                  <td className="px-4 py-2.5 text-right text-slate-600">{item.quantidade}</td>
+                                  <td className="px-4 py-2.5 text-right text-slate-600">
+                                    {(item.preco || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  </td>
+                                  <td className="px-4 py-2.5 text-right font-bold text-slate-700">
+                                    {item.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      }
+    </div >
   );
 };
