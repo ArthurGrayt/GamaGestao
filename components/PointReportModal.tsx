@@ -22,6 +22,7 @@ export interface User {
     img_url?: string;
     lider: boolean;
     role?: Role;
+    role_id?: number;
     sector?: Sector;
 }
 
@@ -89,7 +90,7 @@ export const PointReportModal: React.FC<PointReportModalProps> = ({ isOpen, onCl
                 // 0 is Sunday, 6 is Saturday. We want 1-5 (Mon-Fri).
                 return dayOfWeek !== 0 && dayOfWeek !== 6;
             }).length;
-            const targetMinutes = businessDaysCount * (8 * 60 + 45); // 8h 45m per business day
+            // const targetMinutes = businessDaysCount * (8 * 60 + 45); // Moved to inside map
 
             // Custom Sort Function
             const typePriority: { [key: string]: number } = {
@@ -139,7 +140,25 @@ export const PointReportModal: React.FC<PointReportModalProps> = ({ isOpen, onCl
 
                 const daysWorkedCount = validDays.size;
                 const avg = daysWorkedCount > 0 ? totalMin / daysWorkedCount : 0;
-                const balance = targetMinutes - totalMin;
+
+                // Determine Target based on Role
+                // ID 2 = Estagiário (Intern) -> 6 hours (360 min)
+                const isIntern = user.role_id === 2;
+                const dailyTarget = isIntern ? (6 * 60) : (8 * 60 + 45);
+                const targetMinutes = businessDaysCount * dailyTarget;
+
+                const balance = targetMinutes - totalMin; // Note: Current logic seems to be Target - Total. Usually Balance = Total - Target?
+                // Previously: const balance = targetMinutes - totalMin; -> Positive means DEBT?
+                // Or if user wants "Credit", it should be Total - Target.
+                // Assuming existing logic: "balanceMinutes: balance" -> Checks how it's displayed.
+                // If existing code had: const balance = targetMinutes - totalMin; 
+                // Let's stick to existing direction unless user complains.
+                // Wait, if target is 100, and I worked 90. Balance should be -10 (Missing).
+                // If I define balance = 100 - 90 = 10. That's "Missing 10".
+                // I will keep the subtraction order consistent with previous global var usage, 
+                // but checking previous global var logic: 
+                // const balance = targetMinutes - totalMin;
+                // Yes, I will stick to that.
 
                 return {
                     user,

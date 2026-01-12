@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabase';
-import { Users, Search, Filter, Shield, Briefcase, User as UserIcon, Crown, FileText, CheckSquare, Square, X, Edit2, Save, Camera, Calendar, Mail, Stethoscope, Trash2 } from 'lucide-react';
+import { Users, Search, Filter, Shield, Briefcase, User as UserIcon, Crown, FileText, CheckSquare, Square, X, Edit2, Save, Camera, Calendar, Mail, Stethoscope, Trash2, Eye, EyeOff, Archive, RefreshCcw, ChevronDown } from 'lucide-react';
 import { PointReportModal } from '../components/PointReportModal';
 import { EditPointsModal } from '../components/EditPointsModal';
 
@@ -34,6 +34,7 @@ interface User {
     created_at: string;
     acesso_med?: number;
     acesso_med_rel?: PerfilMed;
+    active?: boolean;
 }
 
 export function Usuarios() {
@@ -47,6 +48,7 @@ export function Usuarios() {
     const [isSelectionMode, setIsSelectionMode] = useState(false);
     const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set());
     const [showReportModal, setShowReportModal] = useState(false);
+    const [showHidden, setShowHidden] = useState(false);
 
     // Detail Modal State
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -72,7 +74,8 @@ export function Usuarios() {
           role:roles (id, name_roles),
           sector:sector (id, sector_name),
           acesso_med_rel:perfil_med (id, acesso)
-        `);
+        `)
+                .neq('role', 999);
 
             if (error) throw error;
             setUsers(data || []);
@@ -189,6 +192,36 @@ export function Usuarios() {
         }
     };
 
+    const handleToggleActiveStatus = async () => {
+        if (!selectedUser) return;
+
+        const newStatus = selectedUser.active === false ? true : false; // Toggle
+        const actionName = newStatus ? 'Reexibir' : 'Ocultar';
+
+        if (!confirm(`Deseja realmente ${actionName} o usuário ${selectedUser.username}?`)) {
+            return;
+        }
+
+        setIsSaving(true);
+        try {
+            const { error } = await supabase
+                .from('users')
+                .update({ active: newStatus })
+                .eq('id', selectedUser.id);
+
+            if (error) throw error;
+
+            await fetchUsers();
+            setIsEditModalOpen(false);
+            alert(`Usuário ${newStatus ? 'reexibido' : 'ocultado'} com sucesso.`);
+        } catch (error) {
+            console.error(`Erro ao ${actionName} usuário:`, error);
+            alert(`Erro ao ${actionName} usuário.`);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     const handleDeleteUser = async () => {
         if (!selectedUser) return;
 
@@ -216,11 +249,29 @@ export function Usuarios() {
         }
     }
 
-    const filteredUsers = users.filter(user =>
-        user.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.role?.name_roles?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.sector?.sector_name?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredUsers = users.filter(user => {
+        // Filter by Search Term
+        const matchesSearch = user.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            user.role?.name_roles?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            user.sector?.sector_name?.toLowerCase().includes(searchTerm.toLowerCase());
+
+        // Filter by Active Status
+        // If showHidden is true: show ONLY hidden? Or All? 
+        // User request: "ver os ocultos". Usually implies showing hidden ones.
+        // Let's implement: Default (showHidden=false) -> Show only Active.
+        // Toggled (showHidden=true) -> Show only Inactive (Hidden).
+        // Or Show All? "Ver ocultos e reexibir" implies finding them.
+        // I will make it Show All or Show Hidden. 
+        // Let's try: showHidden = true => Show ALL (Active + Inactive). 
+        // Actually, distinct lists are often better. 
+        // Let's strictly toggle: Active Users vs Archived Users.
+        const isActive = user.active !== false; // Null or True = Active. False = Inactive.
+
+        if (showHidden) {
+            return matchesSearch && !isActive; // Show only hidden
+        }
+        return matchesSearch && isActive; // Show only active
+    });
 
     const selectedUsersList = users.filter(u => selectedUserIds.has(u.id));
 
@@ -252,6 +303,18 @@ export function Usuarios() {
                             >
                                 <FileText size={18} />
                                 Relatório de Ponto
+                            </button>
+
+                            <button
+                                onClick={() => setShowHidden(!showHidden)}
+                                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm border ${showHidden
+                                    ? 'bg-slate-800 text-white border-slate-800 hover:bg-slate-900'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                                    }`}
+                                title={showHidden ? "Ver Ativos" : "Ver Ocultos"}
+                            >
+                                {showHidden ? <EyeOff size={18} /> : <Eye size={18} />}
+                                {showHidden ? 'Ocultar Arquivados' : 'Ver Ocultos'}
                             </button>
                         </>
                     )}
@@ -394,7 +457,7 @@ export function Usuarios() {
             <PointReportModal
                 isOpen={showReportModal}
                 onClose={() => setShowReportModal(false)}
-                users={selectedUsersList.map(u => ({ ...u, id: String(u.id) }))}
+                users={selectedUsersList.map(u => ({ ...u, id: String(u.id), role_id: u.role?.id || u.role_id }))}
             />
 
             {/* NEW: Edit Points Modal */}
@@ -437,9 +500,7 @@ export function Usuarios() {
                                         </div>
                                     )}
                                 </div>
-                                <p className="text-slate-400 text-xs text-center max-w-xs">
-                                    A foto de perfil é gerenciada externamente ou via URL
-                                </p>
+
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -522,22 +583,30 @@ export function Usuarios() {
                                     </div>
                                 </div>
 
-                                {/* Acesso Medico */}
+                                {/* Acesso Gama Recep */}
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                                        <Stethoscope size={16} className="text-blue-500" /> Acesso Médico
-                                    </label>
-                                    <select
-                                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
-                                        value={editForm.acesso_med || ''}
-                                        onChange={(e) => setEditForm({ ...editForm, acesso_med: Number(e.target.value) || null })}
-                                    >
-                                        <option value="">Sem Acesso Médico</option>
-                                        {medProfiles.map(p => (
-                                            <option key={p.id} value={p.id}>{p.acesso}</option>
-                                        ))}
-                                    </select>
+                                    <label className="text-sm font-medium text-slate-700">Acesso Gama Recep</label>
+                                    <div className="relative group">
+                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-hover:text-blue-500 transition-colors pointer-events-none">
+                                            <Stethoscope size={18} />
+                                        </div>
+                                        <select
+                                            className="w-full pl-10 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm appearance-none transition-all shadow-sm hover:border-blue-300 cursor-pointer text-slate-700 font-medium"
+                                            value={editForm.acesso_med || ''}
+                                            onChange={(e) => setEditForm({ ...editForm, acesso_med: Number(e.target.value) || null })}
+                                        >
+                                            <option value="">Selecione o tipo de acesso...</option>
+                                            {medProfiles.map(p => (
+                                                <option key={p.id} value={p.id}>{p.id} - {p.acesso}</option>
+                                            ))}
+                                        </select>
+                                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 group-hover:text-slate-600 transition-colors pointer-events-none">
+                                            <ChevronDown size={16} />
+                                        </div>
+                                    </div>
                                 </div>
+
+
 
                                 {/* Leader Toggle */}
                                 <div className="col-span-1 md:col-span-2 pt-2">
@@ -559,13 +628,34 @@ export function Usuarios() {
 
                         {/* Footer */}
                         <div className="p-6 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl flex justify-between items-center">
-                            <button
-                                onClick={handleDeleteUser}
-                                className="px-5 py-2.5 rounded-xl text-red-500 font-medium hover:bg-red-50 border border-transparent hover:border-red-100 transition-all text-sm flex items-center gap-2"
-                            >
-                                <Trash2 size={18} />
-                                Apagar Perfil
-                            </button>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={handleDeleteUser}
+                                    className="px-5 py-2.5 rounded-xl text-red-500 font-medium hover:bg-red-50 border border-transparent hover:border-red-100 transition-all text-sm flex items-center gap-2"
+                                >
+                                    <Trash2 size={18} />
+                                    Apagar Perfil
+                                </button>
+                                <button
+                                    onClick={handleToggleActiveStatus}
+                                    className={`px-5 py-2.5 rounded-xl font-medium border border-transparent transition-all text-sm flex items-center gap-2 ${selectedUser.active === false
+                                        ? 'text-teal-600 hover:bg-teal-50 hover:border-teal-100'
+                                        : 'text-slate-500 hover:bg-slate-100 hover:border-slate-200'
+                                        }`}
+                                >
+                                    {selectedUser.active === false ? (
+                                        <>
+                                            <RefreshCcw size={18} />
+                                            Reexibir
+                                        </>
+                                    ) : (
+                                        <>
+                                            <EyeOff size={18} />
+                                            Ocultar
+                                        </>
+                                    )}
+                                </button>
+                            </div>
                             <div className="flex gap-3">
                                 <button
                                     onClick={() => setIsEditModalOpen(false)}
