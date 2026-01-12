@@ -1068,6 +1068,8 @@ export const Formularios: React.FC = () => {
     const [selectedRespondent, setSelectedRespondent] = useState<string | null>(null); // Groups by responder_identifier + timestamp key
     const [diagnosticData, setDiagnosticData] = useState<HSEDiagnosticItem[]>([]);
     const [interpretativeText, setInterpretativeText] = useState<string>('');
+    const [actionPlanText, setActionPlanText] = useState<string>('');
+    const [conclusionText, setConclusionText] = useState<string>('');
     const [expandedInterpretativeDims, setExpandedInterpretativeDims] = useState<Set<number>>(new Set());
 
     // Overview Search State
@@ -1175,10 +1177,40 @@ export const Formularios: React.FC = () => {
             } else if (textData) {
                 setInterpretativeText(textData.texto_final_pronto);
             }
+
+            // Fetch Action Plan Text
+            const { data: planData, error: planError } = await supabase
+                .from('view_hse_texto_plano')
+                .select('texto_plano_pronto')
+                .eq('form_id', form.id)
+                .single();
+
+            if (planError) {
+                console.error('Error fetching action plan text:', planError);
+                setActionPlanText('');
+            } else if (planData) {
+                setActionPlanText(planData.texto_plano_pronto);
+            }
+
+            // Fetch Conclusion Text
+            const { data: conData, error: conError } = await supabase
+                .from('view_hse_texto_conclusao')
+                .select('texto_conclusao_pronto')
+                .eq('form_id', form.id)
+                .single();
+
+            if (conError) {
+                console.error('Error fetching conclusion text:', conError);
+                setConclusionText('');
+            } else if (conData) {
+                setConclusionText(conData.texto_conclusao_pronto);
+            }
         } else {
             console.log('Not an HSE form (no hse_id)');
             setDiagnosticData([]);
             setInterpretativeText('');
+            setActionPlanText('');
+            setConclusionText('');
         }
 
         // Fetch Answers
@@ -2222,19 +2254,112 @@ export const Formularios: React.FC = () => {
 
                                             // Bold headers logic (case insensitive check for safety)
                                             const lowerText = cleanText.toLowerCase();
-                                            if (
-                                                lowerText.startsWith('pontos fortes:') ||
-                                                lowerText.startsWith('pontos de melhoria:') ||
-                                                lowerText.startsWith('pontos de atenção:') ||
-                                                cleanText.endsWith(':')
-                                            ) {
+                                            const isHeader =
+                                                lowerText.startsWith('pontos fortes') ||
+                                                lowerText.startsWith('pontos de melhoria') ||
+                                                lowerText.startsWith('pontos de atenção') ||
+                                                lowerText.startsWith('pontos fracos') ||
+                                                cleanText.match(/:+$/); // Ends with : or ::
+
+                                            let content: React.ReactNode = cleanText;
+
+                                            // Highlight Dimensions if NOT a header
+                                            if (!isHeader && hseDimensions.length > 0) {
+                                                const escapedNames = hseDimensions.map(d => d.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+                                                if (escapedNames) {
+                                                    const regex = new RegExp(`(${escapedNames})`, 'gi');
+                                                    const parts = cleanText.split(regex);
+                                                    if (parts.length > 1) {
+                                                        content = parts.map((part, pIdx) => {
+                                                            const isMatch = hseDimensions.some(d => d.name.toLowerCase() === part.toLowerCase());
+                                                            return isMatch ? <span key={pIdx} className="font-bold text-slate-900">{part}</span> : part;
+                                                        });
+                                                    }
+                                                }
+                                            }
+
+                                            if (isHeader) {
+                                                return <p key={idx} className="font-bold text-slate-900 mt-3 mb-1">{cleanText}</p>;
+                                            }
+
+                                            return <p key={idx} className="mb-1">{content}</p>;
+                                        })
+                                    ) : (
+                                        <p className="text-slate-400 italic">Nenhuma análise gerada ou disponível ainda.</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* 6. Recomendações de Plano de Ação */}
+                            <div className="mb-8">
+                                <h2 className="text-lg font-bold text-blue-800 mb-2">6. Recomendações de Plano de Ação</h2>
+                                <div className="text-slate-800 text-sm leading-relaxed text-justify">
+                                    {actionPlanText ? (
+                                        actionPlanText.split('\n').map((line, idx) => {
+                                            // Strip HTML bold tags if present
+                                            const cleanText = line.replace(/<\/?b>/gi, '').trim();
+                                            if (!cleanText) return <br key={idx} />;
+
+                                            // Bold headers logic
+                                            const lowerText = cleanText.toLowerCase();
+                                            const isHeader =
+                                                lowerText.startsWith('ação') ||
+                                                cleanText.match(/:+$/); // Ends with : or ::
+
+                                            if (isHeader) {
+                                                return <p key={idx} className="font-bold text-slate-900 mt-3 mb-1">{cleanText}</p>;
+                                            }
+
+                                            // Parsing for Inline Titles (Dimensions or "Title:")
+                                            let content: React.ReactNode = cleanText;
+
+                                            // Check if line starts with a Dimension Name
+                                            const startDim = hseDimensions.find(d => lowerText.startsWith(d.name.toLowerCase()));
+                                            if (startDim) {
+                                                const dimLen = startDim.name.length;
+                                                const titlePart = cleanText.substring(0, dimLen);
+                                                const restPart = cleanText.substring(dimLen);
+                                                content = <><span className="font-bold text-slate-900">{titlePart}</span>{restPart}</>;
+                                            } else {
+                                                // Check for "Title:" pattern
+                                                const match = cleanText.match(/^(.+?):/);
+                                                if (match) {
+                                                    const fullTitle = match[0]; // Includes the colon
+                                                    const rest = cleanText.substring(fullTitle.length);
+                                                    content = <><span className="font-bold text-slate-900">{fullTitle}</span>{rest}</>;
+                                                }
+                                            }
+
+                                            return <p key={idx} className="mb-1">{content}</p>;
+                                        })
+                                    ) : (
+                                        <p className="text-slate-400 italic">Nenhum plano de ação gerado ou disponível ainda.</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* 7. Conclusão */}
+                            <div className="mb-8">
+                                <h2 className="text-lg font-bold text-blue-800 mb-2">7. Conclusão</h2>
+                                <div className="text-slate-800 text-sm leading-relaxed text-justify">
+                                    {conclusionText ? (
+                                        conclusionText.split('\n').map((line, idx) => {
+                                            // Strip HTML bold tags if present
+                                            const cleanText = line.replace(/<\/?b>/gi, '').trim();
+                                            if (!cleanText) return <br key={idx} />;
+
+                                            // Bold headers logic
+                                            const lowerText = cleanText.toLowerCase();
+                                            const isHeader = cleanText.match(/:+$/); // Ends with : or ::
+
+                                            if (isHeader) {
                                                 return <p key={idx} className="font-bold text-slate-900 mt-3 mb-1">{cleanText}</p>;
                                             }
 
                                             return <p key={idx} className="mb-1">{cleanText}</p>;
                                         })
                                     ) : (
-                                        <p className="text-slate-400 italic">Nenhuma análise gerada ou disponível ainda.</p>
+                                        <p className="text-slate-400 italic">Nenhuma conclusão gerada ou disponível ainda.</p>
                                     )}
                                 </div>
                             </div>
