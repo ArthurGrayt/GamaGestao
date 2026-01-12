@@ -1067,6 +1067,7 @@ export const Formularios: React.FC = () => {
     const [infoPopoverId, setInfoPopoverId] = useState<number | null>(null);
     const [selectedRespondent, setSelectedRespondent] = useState<string | null>(null); // Groups by responder_identifier + timestamp key
     const [diagnosticData, setDiagnosticData] = useState<HSEDiagnosticItem[]>([]);
+    const [interpretativeText, setInterpretativeText] = useState<string>('');
     const [expandedInterpretativeDims, setExpandedInterpretativeDims] = useState<Set<number>>(new Set());
 
     // Overview Search State
@@ -1158,12 +1159,26 @@ export const Formularios: React.FC = () => {
                 console.log('Diagnostic Data Loaded:', dd);
                 setDiagnosticData(dd as HSEDiagnosticItem[]);
             } else {
-                console.log('No diagnostic data found.');
                 setDiagnosticData([]);
+            }
+
+            // Fetch Interpretative Text
+            const { data: textData, error: textError } = await supabase
+                .from('view_hse_texto_analise')
+                .select('texto_final_pronto')
+                .eq('form_id', form.id)
+                .single();
+
+            if (textError) {
+                console.error('Error fetching interpretative text:', textError);
+                setInterpretativeText('');
+            } else if (textData) {
+                setInterpretativeText(textData.texto_final_pronto);
             }
         } else {
             console.log('Not an HSE form (no hse_id)');
             setDiagnosticData([]);
+            setInterpretativeText('');
         }
 
         // Fetch Answers
@@ -2141,6 +2156,88 @@ export const Formularios: React.FC = () => {
                                     })}
                                 </div>
                             </div>
+
+                            {/* 4. Resultados por Dimensão (diagnóstico consolidado) */}
+                            <div className="mb-8">
+                                <h2 className="text-lg font-bold text-blue-800 mb-3">4. Resultados por Dimensão (diagnóstico consolidado)</h2>
+                                <table className="w-full text-sm border-collapse border border-slate-300">
+                                    <thead>
+                                        <tr className="bg-slate-100">
+                                            <th className="border border-slate-300 p-2 text-left font-bold text-slate-700">Dimensão</th>
+                                            <th className="border border-slate-300 p-2 text-left font-bold text-slate-700">Resultado</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {Object.entries(diagnosticData.reduce((acc, item) => {
+                                            const dimId = item.dimensao_id;
+                                            if (!acc[dimId]) acc[dimId] = [];
+                                            acc[dimId].push(item);
+                                            return acc;
+                                        }, {} as Record<number, HSEDiagnosticItem[]>)).map(([dimId, items]) => {
+                                            const typedItems = items as HSEDiagnosticItem[];
+                                            const firstItem = typedItems[0];
+                                            const dimName = firstItem.dimensao;
+                                            const dimMeta = hseDimensions.find(d => d.id === Number(dimId));
+                                            const isPositive = dimMeta ? dimMeta.is_positive : false;
+                                            const dimAverage = typedItems.reduce((sum, i) => sum + (Number(i.media_valor) || 0), 0) / typedItems.length;
+
+                                            // Replicated Risk Logic for PDF Report
+                                            let riskLabel = '';
+                                            if (isPositive) {
+                                                // INVERTED: Higher score = Lower Risk
+                                                if (dimAverage >= 3) riskLabel = 'baixo risco de exposição';
+                                                else if (dimAverage >= 2) riskLabel = 'médio risco de exposição';
+                                                else if (dimAverage >= 1) riskLabel = 'moderado risco de exposição';
+                                                else riskLabel = 'alto risco de exposição';
+                                            } else {
+                                                // STANDARD: Lower score = Lower Risk
+                                                if (dimAverage <= 1) riskLabel = 'baixo risco de exposição';
+                                                else if (dimAverage <= 2) riskLabel = 'médio risco de exposição';
+                                                else if (dimAverage <= 3) riskLabel = 'moderado risco de exposição';
+                                                else riskLabel = 'alto risco de exposição';
+                                            }
+
+                                            return (
+                                                <tr key={dimId}>
+                                                    <td className="border border-slate-300 p-2 text-slate-700 font-medium">{dimName}</td>
+                                                    <td className="border border-slate-300 p-2 text-slate-700">
+                                                        {riskLabel} ({dimAverage.toFixed(2)})
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* 5. Análise Interpretativa */}
+                            <div className="mb-8">
+                                <h2 className="text-lg font-bold text-blue-800 mb-2">5. Análise Interpretativa</h2>
+                                <div className="text-slate-800 text-sm leading-relaxed text-justify">
+                                    {interpretativeText ? (
+                                        interpretativeText.split('\n').map((line, idx) => {
+                                            // Strip HTML bold tags if present
+                                            const cleanText = line.replace(/<\/?b>/gi, '').trim();
+                                            if (!cleanText) return <br key={idx} />;
+
+                                            // Bold headers logic (case insensitive check for safety)
+                                            const lowerText = cleanText.toLowerCase();
+                                            if (
+                                                lowerText.startsWith('pontos fortes:') ||
+                                                lowerText.startsWith('pontos de melhoria:') ||
+                                                lowerText.startsWith('pontos de atenção:') ||
+                                                cleanText.endsWith(':')
+                                            ) {
+                                                return <p key={idx} className="font-bold text-slate-900 mt-3 mb-1">{cleanText}</p>;
+                                            }
+
+                                            return <p key={idx} className="mb-1">{cleanText}</p>;
+                                        })
+                                    ) : (
+                                        <p className="text-slate-400 italic">Nenhuma análise gerada ou disponível ainda.</p>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     </Modal>
 
@@ -2706,10 +2803,51 @@ export const Formularios: React.FC = () => {
             // Sort by Performance Descending
             dimStats.sort((a, b) => b.performance - a.performance);
 
-            // Split into Strong (Top 50%) and Weak (Bottom 50%)
-            const half = Math.ceil(dimStats.length / 2);
-            const topHalf = dimStats.slice(0, half);
-            const bottomHalf = dimStats.slice(half);
+            // Filter into Strong (Low/Medium Risk) and Weak (Moderate/High Risk)
+            // Logic: High Risk = Weakness. Low Risk = Strength.
+            const strengths: typeof dimStats = [];
+            const weaknesses: typeof dimStats = [];
+
+            dimStats.forEach(dim => {
+                const score = dim.average;
+                const isPos = dim.isPositive;
+
+                let isHighRisk = false;
+                // Determine if it's High/Moderate Risk (Weakness) or Low/Medium Risk (Strength)
+                // Using the specific HSE Scoring Logic:
+                if (isPos) {
+                    // Higher is Better. Low Score = High Risk.
+                    // Risk: High (<1), Moderate (1-2), Medium (2-3), Low (>3)
+                    // If Score < 3, it's significant risk?
+                    // Let's stick to the prompt: "Alto risco ... pontos fracos".
+                    // Standard HSE often classifies < 3 as needing improvement. 
+                    // Let's use the threshold of 'Moderate' or worse as Weakness.
+                    // Moderate is < 3ish usually? 
+                    // Re-checking getRiskAnalysis logic from earlier:
+                    /*
+                    if (score >= 3) Low Risk (Green) -> Strength
+                    if (score >= 2) Medium Risk (Blue) -> Strength? 
+                    if (score >= 1) Moderate Risk (Yellow) -> Weakness?
+                    else High Risk (Red) -> Weakness
+                    */
+                    // Let's assume Low/Medium = Strength, Moderate/High = Weakness.
+                    if (score >= 2) isHighRisk = false;
+                    else isHighRisk = true;
+                } else {
+                    // Lower is Better. High Score = High Risk.
+                    /*
+                    if (score <= 1) Low Risk (Green) -> Strength
+                    if (score <= 2) Medium Risk (Blue) -> Strength
+                    if (score <= 3) Moderate Risk (Yellow) -> Weakness?
+                    else High Risk (Red) -> Weakness
+                    */
+                    if (score <= 2) isHighRisk = false;
+                    else isHighRisk = true;
+                }
+
+                if (isHighRisk) weaknesses.push(dim);
+                else strengths.push(dim);
+            });
 
             return (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in duration-500 relative">
@@ -2721,9 +2859,9 @@ export const Formularios: React.FC = () => {
                             </div>
                             <h2 className="text-xl font-bold text-slate-800">Pontos Fortes</h2>
                         </div>
-
+                        {strengths.length === 0 && <p className="text-slate-400 italic">Nenhum ponto forte identificado.</p>}
                         <div className="space-y-3">
-                            {topHalf.map(dim => {
+                            {strengths.map(dim => {
                                 const isExpanded = expandedInterpretativeDims.has(Number(dim.id));
                                 const dimRules = hseRules.filter(r => r.dimension_id === Number(dim.id)).sort((a, b) => a.min_val - b.min_val);
 
@@ -2812,9 +2950,9 @@ export const Formularios: React.FC = () => {
                             </div>
                             <h2 className="text-xl font-bold text-slate-800">Pontos Fracos</h2>
                         </div>
-
+                        {weaknesses.length === 0 && <p className="text-slate-400 italic">Nenhum ponto fraco identificado.</p>}
                         <div className="space-y-3">
-                            {bottomHalf.map(dim => {
+                            {weaknesses.map(dim => {
                                 const isExpanded = expandedInterpretativeDims.has(Number(dim.id));
                                 const dimRules = hseRules.filter(r => r.dimension_id === Number(dim.id)).sort((a, b) => a.min_val - b.min_val);
 
