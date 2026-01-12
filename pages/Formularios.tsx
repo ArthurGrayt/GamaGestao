@@ -6,10 +6,12 @@ import {
     MoreVertical, Edit2, Trash2, X, Check, Copy, ExternalLink,
     ChevronUp, ChevronDown, List, Type, MessageSquare, Star,
     User, Users, Calendar, Clock, ArrowLeft, ChevronRight, Split, Layout, Minimize2, AlignJustify, GripVertical,
-    Building2, MapPin, Briefcase, Filter, Download, Play, Pause, Settings, Save, CheckCircle, AlertCircle, Send, Hash, Info, ThumbsUp, ThumbsDown, PieChart as PieChartIcon, Eye
+    Building2, MapPin, Briefcase, Filter, Download, Play, Pause, Settings, Save, CheckCircle, AlertCircle, Send, Hash, Info, ThumbsUp, ThumbsDown, PieChart as PieChartIcon, Eye, Printer
 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { Form, FormQuestion, FormAnswer, HSEDimension, QuestionType, HSERule, HSEDiagnosticItem } from '../types';
+// @ts-ignore
+import html2pdf from 'html2pdf.js';
 
 
 
@@ -65,18 +67,24 @@ const Badge = ({ status }: { status: boolean }) => (
     </span>
 );
 
-const Modal = ({ isOpen, onClose, title, children }: any) => {
+const Modal = ({ isOpen, onClose, title, children, className = '' }: any) => {
     if (!isOpen) return null;
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
-                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200 print:p-0 print:bg-white print:static print:block">
+            <style>{`
+                @media print {
+                    body > *:not(.fixed) { display: none !important; }
+                    body { overflow: visible !important; }
+                }
+            `}</style>
+            <div className={`bg-white rounded-3xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 print:shadow-none print:max-w-none print:w-full print:max-h-none print:rounded-none print:overflow-visible ${className}`}>
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10 print:hidden">
                     <h2 className="text-xl font-bold text-slate-800">{title}</h2>
                     <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-red-500 transition-colors">
                         <X size={20} />
                     </button>
                 </div>
-                <div className="p-6 overflow-y-auto flex-1 bg-slate-50/50">
+                <div className="p-6 overflow-y-auto flex-1 bg-slate-50/50 print:p-0 print:bg-white print:overflow-visible">
                     {children}
                 </div>
             </div>
@@ -1070,6 +1078,8 @@ export const Formularios: React.FC = () => {
     const [interpretativeText, setInterpretativeText] = useState<string>('');
     const [actionPlanText, setActionPlanText] = useState<string>('');
     const [conclusionText, setConclusionText] = useState<string>('');
+    const [technicalResponsible, setTechnicalResponsible] = useState<string>('');
+    const [technicalCrp, setTechnicalCrp] = useState<string>('');
     const [expandedInterpretativeDims, setExpandedInterpretativeDims] = useState<Set<number>>(new Set());
 
     // Overview Search State
@@ -2089,7 +2099,98 @@ export const Formularios: React.FC = () => {
                         title="Relatório de Avaliação Psicossocial (HSE-IT)"
                         className="max-w-4xl"
                     >
-                        <div className="bg-white p-8 rounded shadow-sm border border-slate-100 font-sans text-slate-800 leading-relaxed print:shadow-none print:border-none">
+                        <div id="hse-report-content" className="bg-white p-8 rounded shadow-sm border border-slate-100 font-sans text-slate-800 leading-relaxed print:shadow-none print:border-none print:p-0">
+
+                            {/* Controls (Hidden in Print and PDF) */}
+                            <div
+                                data-html2canvas-ignore="true"
+                                className="mb-8 p-4 bg-slate-50 border border-slate-200 rounded-xl print:hidden flex flex-col sm:flex-row gap-4 justify-between items-end"
+                            >
+                                <div className="flex flex-col sm:flex-row gap-4 w-full">
+                                    <div className="flex-1">
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome da Responsável Técnica</label>
+                                        <input
+                                            type="text"
+                                            value={technicalResponsible}
+                                            onChange={(e) => setTechnicalResponsible(e.target.value)}
+                                            placeholder="Ex: Dra. Maria Silva"
+                                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                        />
+                                    </div>
+                                    <div className="w-full sm:w-48">
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">CRP</label>
+                                        <input
+                                            type="text"
+                                            value={technicalCrp}
+                                            onChange={(e) => setTechnicalCrp(e.target.value)}
+                                            placeholder="Ex: 12345/RJ"
+                                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                        />
+                                    </div>
+                                </div>
+                                <Button
+                                    onClick={() => {
+                                        const element = document.getElementById('hse-report-content');
+
+                                        const opt: any = {
+                                            margin: [10, 10, 10, 10],
+                                            filename: `Relatorio_HSE_${new Date().toISOString().split('T')[0]}.pdf`,
+                                            image: { type: 'jpeg', quality: 0.98 },
+                                            html2canvas: {
+                                                scale: 2,
+                                                useCORS: true,
+                                                logging: false,
+                                                onclone: (doc: Document) => {
+                                                    const el = doc.getElementById('hse-report-content');
+                                                    if (el) {
+                                                        // clear shadow and border to avoid artifacts
+                                                        el.style.boxShadow = 'none';
+                                                        el.style.border = 'none';
+                                                        el.classList.remove('shadow-sm', 'border', 'rounded');
+                                                        el.classList.add('bg-white');
+                                                        el.style.padding = '20px'; // Reduce padding for PDF
+
+                                                        // Inject styles to prevent cutting text in half (EXCLUDING TABLES to fix layout)
+                                                        const style = doc.createElement('style');
+                                                        style.innerHTML = `
+                                                            p, h1, h2, h3, h4, h5, h6, li, .break-inside-avoid {
+                                                                page-break-inside: avoid !important;
+                                                                break-inside: avoid !important;
+                                                                display: block; /* Ensure block behavior for non-tables */
+                                                            }
+                                                            /* Ensure tables stay as tables */
+                                                            tr, th, td {
+                                                                page-break-inside: avoid !important;
+                                                                break-inside: avoid !important;
+                                                            }
+                                                            li {
+                                                                margin-bottom: 4px; /* Give space for break calculation */
+                                                            }
+                                                            .break-before-auto {
+                                                                page-break-before: auto !important;
+                                                                break-before: auto !important;
+                                                            }
+                                                        `;
+                                                        doc.head.appendChild(style);
+                                                    }
+                                                }
+                                            },
+                                            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                                            pagebreak: {
+                                                mode: ['css', 'legacy'],
+                                                avoid: ['li', 'tr', '.break-inside-avoid']
+                                            }
+                                        };
+
+                                        html2pdf().set(opt).from(element).save();
+                                    }}
+                                    className="gap-2 bg-blue-600 hover:bg-blue-700 text-white min-w-[180px]"
+                                >
+                                    <Download size={18} />
+                                    Baixar PDF
+                                </Button>
+                            </div>
+
                             {/* Header */}
                             <div className="border-b border-blue-500 pb-4 mb-8">
                                 <h1 className="text-2xl font-bold text-slate-900 mb-2">Laudo de Levantamento dos Riscos Psicossociais</h1>
@@ -2098,7 +2199,7 @@ export const Formularios: React.FC = () => {
 
                             {/* 1. Introdução */}
                             <div className="mb-8">
-                                <h2 className="text-lg font-bold text-blue-800 mb-3">1. Introdução</h2>
+                                <h2 className="text-lg font-bold text-blue-800 mb-3" style={{ breakAfter: 'avoid' }}>1. Introdução</h2>
                                 <p className="mb-4 text-justify">
                                     Este laudo apresenta os resultados da avaliação psicossocial realizada com base no questionário HSE Indicator Tool (HSE-IT), que contempla 35 itens distribuídos em 7 dimensões: Demandas, Controle, Apoio da Chefia, Apoio dos Colegas, Relacionamentos, Cargo e Comunicação/Mudanças.
                                 </p>
@@ -2108,8 +2209,8 @@ export const Formularios: React.FC = () => {
                             </div>
 
                             {/* 2. Metodologia */}
-                            <div className="mb-8">
-                                <h2 className="text-lg font-bold text-blue-800 mb-3">2. Metodologia</h2>
+                            <div className="mb-0">
+                                <h2 className="text-lg font-bold text-blue-800 mb-3" style={{ breakAfter: 'avoid' }}>2. Metodologia</h2>
 
                                 <div className="mb-6">
                                     <p className="font-bold mb-2">Escala de respostas utilizada:</p>
@@ -2150,8 +2251,8 @@ export const Formularios: React.FC = () => {
                             </div>
 
                             {/* 3. Resultados por Item (diagnóstico detalhado) */}
-                            <div className="mb-8">
-                                <h2 className="text-lg font-bold text-blue-800 mb-3">3. Resultados por Item (diagnóstico detalhado)</h2>
+                            <div className="mb-0 pb-0" style={{ marginTop: '6rem', marginBottom: 0, paddingBottom: 0 }}>
+                                <h2 className="text-lg font-bold text-blue-600 mb-3" style={{ breakAfter: 'avoid', pageBreakAfter: 'avoid', marginTop: 0 }}>3. Resultados por Item (diagnóstico detalhado)</h2>
                                 <div className="space-y-6">
                                     {Object.entries(diagnosticData.reduce((acc, item) => {
                                         const dimId = item.dimensao_id;
@@ -2161,24 +2262,26 @@ export const Formularios: React.FC = () => {
                                     }, {} as Record<number, HSEDiagnosticItem[]>)).map(([dimId, items]) => {
                                         const typedItems = items as HSEDiagnosticItem[];
                                         const firstItem = typedItems[0];
-                                        const dimName = firstItem.dimensao;
-                                        const dimMeta = hseDimensions.find(d => d.id === Number(dimId));
-                                        const isPositive = dimMeta ? dimMeta.is_positive : false;
+                                        const dim = hseDimensions.find(d => d.id === Number(dimId));
+                                        const dimName = dim?.name || firstItem.dimensao;
+                                        const isRelacionamentos = dimName.toLowerCase().includes('relacionamentos');
+                                        const isPositive = dim?.is_positive || false;
 
                                         return (
-                                            <div key={dimId} className="break-inside-avoid">
-                                                <h3 className="font-bold text-slate-800 mb-2 border-b border-slate-200 pb-1">
-                                                    Dimensão {dimName} <span className="text-sm font-normal text-slate-500">({isPositive ? 'quanto maior, melhor' : 'quanto menor, melhor'})</span>
+                                            <div key={dimId} style={isRelacionamentos ? { marginTop: '6rem' } : {}}>
+                                                <h3 className="font-bold text-blue-600 mb-2 mt-4 text-base" style={{ breakAfter: 'avoid', pageBreakAfter: 'avoid' }}>
+                                                    Dimensão {dimName} <span className="text-sm font-normal text-blue-400 hover:text-blue-500 underline decoration-blue-300 decoration-1 underline-offset-2">({isPositive ? 'quanto maior, melhor' : 'quanto menor, melhor'})</span>
                                                 </h3>
-                                                <ul className="list-none space-y-1 pl-0 text-sm">
+                                                <ul className="list-none space-y-2 pl-0 text-sm">
                                                     {typedItems.map((item, idx) => {
                                                         const qIndex = questions.findIndex(q => q.label === item.texto_pergunta);
                                                         const qNum = qIndex !== -1 ? String(qIndex + 1).padStart(2, '0') : '??';
 
                                                         return (
-                                                            <li key={idx} className="text-slate-700">
-                                                                <span className="font-mono text-slate-500 mr-1">{qNum}.</span>
-                                                                {item.texto_pergunta}: <span className="font-medium">{item.texto_risco_completo || 'N/A'}</span> <span className="text-slate-500">({Number(item.media_valor).toFixed(2)})</span>
+                                                            <li key={idx} className="text-slate-800 break-inside-avoid" style={{ pageBreakInside: 'avoid', display: 'block', marginBottom: '8px' }}>
+                                                                <span>
+                                                                    - {qNum}. {item.texto_pergunta}: <span className="font-semibold">{item.texto_risco_completo || 'N/A'}</span> ({Number(item.media_valor).toFixed(2)})
+                                                                </span>
                                                             </li>
                                                         );
                                                     })}
@@ -2190,61 +2293,57 @@ export const Formularios: React.FC = () => {
                             </div>
 
                             {/* 4. Resultados por Dimensão (diagnóstico consolidado) */}
-                            <div className="mb-8">
-                                <h2 className="text-lg font-bold text-blue-800 mb-3">4. Resultados por Dimensão (diagnóstico consolidado)</h2>
-                                <table className="w-full text-sm border-collapse border border-slate-300">
-                                    <thead>
-                                        <tr className="bg-slate-100">
-                                            <th className="border border-slate-300 p-2 text-left font-bold text-slate-700">Dimensão</th>
-                                            <th className="border border-slate-300 p-2 text-left font-bold text-slate-700">Resultado</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {Object.entries(diagnosticData.reduce((acc, item) => {
-                                            const dimId = item.dimensao_id;
-                                            if (!acc[dimId]) acc[dimId] = [];
-                                            acc[dimId].push(item);
-                                            return acc;
-                                        }, {} as Record<number, HSEDiagnosticItem[]>)).map(([dimId, items]) => {
-                                            const typedItems = items as HSEDiagnosticItem[];
-                                            const firstItem = typedItems[0];
-                                            const dimName = firstItem.dimensao;
-                                            const dimMeta = hseDimensions.find(d => d.id === Number(dimId));
-                                            const isPositive = dimMeta ? dimMeta.is_positive : false;
-                                            const dimAverage = typedItems.reduce((sum, i) => sum + (Number(i.media_valor) || 0), 0) / typedItems.length;
+                            <div className="mb-4" style={{ marginTop: '1rem' }}>
+                                <h2 className="text-lg font-bold text-blue-800 mb-4" style={{ breakAfter: 'avoid', pageBreakAfter: 'avoid' }}>4. Resultados por Dimensão (diagnóstico consolidado)</h2>
 
-                                            // Replicated Risk Logic for PDF Report
-                                            let riskLabel = '';
-                                            if (isPositive) {
-                                                // INVERTED: Higher score = Lower Risk
-                                                if (dimAverage >= 3) riskLabel = 'baixo risco de exposição';
-                                                else if (dimAverage >= 2) riskLabel = 'médio risco de exposição';
-                                                else if (dimAverage >= 1) riskLabel = 'moderado risco de exposição';
-                                                else riskLabel = 'alto risco de exposição';
-                                            } else {
-                                                // STANDARD: Lower score = Lower Risk
-                                                if (dimAverage <= 1) riskLabel = 'baixo risco de exposição';
-                                                else if (dimAverage <= 2) riskLabel = 'médio risco de exposição';
-                                                else if (dimAverage <= 3) riskLabel = 'moderado risco de exposição';
-                                                else riskLabel = 'alto risco de exposição';
-                                            }
+                                <div className="grid grid-cols-2 gap-4 text-xs">
+                                    {/* Header */}
+                                    <div className="font-bold text-slate-900 mb-2">Dimensão</div>
+                                    <div className="font-bold text-slate-900 mb-2">Resultado</div>
 
-                                            return (
-                                                <tr key={dimId}>
-                                                    <td className="border border-slate-300 p-2 text-slate-700 font-medium">{dimName}</td>
-                                                    <td className="border border-slate-300 p-2 text-slate-700">
-                                                        {riskLabel} ({dimAverage.toFixed(2)})
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
+                                    {/* Rows */}
+                                    {/* STRICTLY 7 ROWS + 1 HEADER (Implicit in layout) */}
+                                    {hseDimensions.slice(0, 7).map((dim, index) => {
+                                        const dimId = dim.id;
+                                        const dimName = dim.name;
+
+                                        // Filter items
+                                        const typedItems = diagnosticData.filter(item => item.dimensao_id === dimId);
+
+                                        // Calc Average
+                                        let avgDim = 0;
+                                        if (typedItems.length > 0) {
+                                            const totalMedia = typedItems.reduce((sum, i) => sum + (Number(i.media_valor) || 0), 0);
+                                            avgDim = totalMedia / typedItems.length;
+                                        }
+
+                                        // Determine Risk Label & Color
+                                        let riskLabel = '';
+                                        let riskColor = '';
+
+                                        // Logic: using original bg colors but applying to text span
+                                        if (avgDim <= 1) { riskLabel = 'baixo'; riskColor = 'bg-green-400'; } // Image shows bright green
+                                        else if (avgDim <= 2) { riskLabel = 'médio'; riskColor = 'bg-cyan-300'; } // Image shows cyan
+                                        else if (avgDim <= 3) { riskLabel = 'moderado'; riskColor = 'bg-yellow-200'; }
+                                        else { riskLabel = 'alto'; riskColor = 'bg-red-400'; }
+
+                                        return (
+                                            <React.Fragment key={dimId || index}>
+                                                <div className="py-1 text-slate-800">{dimName}</div>
+                                                <div className="py-1">
+                                                    <span className={`${riskColor} px-1 py-0.5 text-black`}>
+                                                        {riskLabel} risco de exposição ({avgDim.toFixed(2)})
+                                                    </span>
+                                                </div>
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                </div>
                             </div>
 
                             {/* 5. Análise Interpretativa */}
-                            <div className="mb-8">
-                                <h2 className="text-lg font-bold text-blue-800 mb-2">5. Análise Interpretativa</h2>
+                            <div className="mb-0" style={{ marginTop: '10rem' }}>
+                                <h2 className="text-lg font-bold text-blue-800 mb-2" style={{ breakAfter: 'avoid', pageBreakAfter: 'avoid' }}>5. Análise Interpretativa</h2>
                                 <div className="text-slate-800 text-sm leading-relaxed text-justify">
                                     {interpretativeText ? (
                                         interpretativeText.split('\n').map((line, idx) => {
@@ -2292,7 +2391,7 @@ export const Formularios: React.FC = () => {
 
                             {/* 6. Recomendações de Plano de Ação */}
                             <div className="mb-8">
-                                <h2 className="text-lg font-bold text-blue-800 mb-2">6. Recomendações de Plano de Ação</h2>
+                                <h2 className="text-lg font-bold text-blue-800 mb-2" style={{ breakAfter: 'avoid' }}>6. Recomendações de Plano de Ação</h2>
                                 <div className="text-slate-800 text-sm leading-relaxed text-justify">
                                     {actionPlanText ? (
                                         actionPlanText.split('\n').map((line, idx) => {
@@ -2340,7 +2439,7 @@ export const Formularios: React.FC = () => {
 
                             {/* 7. Conclusão */}
                             <div className="mb-8">
-                                <h2 className="text-lg font-bold text-blue-800 mb-2">7. Conclusão</h2>
+                                <h2 className="text-lg font-bold text-blue-800 mb-2" style={{ breakAfter: 'avoid' }}>7. Conclusão</h2>
                                 <div className="text-slate-800 text-sm leading-relaxed text-justify">
                                     {conclusionText ? (
                                         conclusionText.split('\n').map((line, idx) => {
@@ -2362,6 +2461,16 @@ export const Formularios: React.FC = () => {
                                         <p className="text-slate-400 italic">Nenhuma conclusão gerada ou disponível ainda.</p>
                                     )}
                                 </div>
+                            </div>
+
+                            {/* Assinatura Responsável Técnica */}
+                            <div className="mt-16 pt-8 border-t border-slate-200 text-center break-inside-avoid" style={{ breakInside: 'avoid' }}>
+                                <p className="text-lg font-bold text-slate-800">
+                                    Responsável Técnica: {technicalResponsible || '__________________________________'}
+                                </p>
+                                <p className="text-sm text-slate-600 font-medium mt-1">
+                                    (CRP {technicalCrp || '____________'})
+                                </p>
                             </div>
                         </div>
                     </Modal>
