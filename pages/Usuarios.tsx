@@ -1,7 +1,7 @@
-
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../services/supabase';
-import { Users, Search, Filter, Shield, Briefcase, User as UserIcon, Crown, FileText, CheckSquare, Square, X, Edit2, Save, Camera, Calendar, Mail, Stethoscope, Trash2, Eye, EyeOff, Archive, RefreshCcw, ChevronDown } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../services/supabase';
+import { Users, Search, Filter, Shield, Briefcase, User as UserIcon, Crown, FileText, CheckSquare, Square, X, Edit2, Save, Camera, Calendar, Mail, Stethoscope, Trash2, Eye, EyeOff, Archive, RefreshCcw, ChevronDown, UserPlus, Lock } from 'lucide-react';
 import { PointReportModal } from '../components/PointReportModal';
 import { EditPointsModal } from '../components/EditPointsModal';
 
@@ -58,6 +58,11 @@ export function Usuarios() {
 
     // Edit Form State
     const [editForm, setEditForm] = useState<Partial<User>>({});
+
+    // Create Form State
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
+    const [createForm, setCreateForm] = useState<Partial<User> & { password?: string }>({ active: true, lider: false });
 
     useEffect(() => {
         fetchUsers();
@@ -249,6 +254,71 @@ export function Usuarios() {
         }
     }
 
+    const handleCreateUser = async () => {
+        if (!createForm.email || !createForm.password || !createForm.username) {
+            alert("Preencha todos os campos obrigatórios (Nome, Email, Senha).");
+            return;
+        }
+
+        setIsSaving(true);
+        try {
+            // 1. Create temporary client to avoid logging out the admin
+            const tempSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                auth: {
+                    persistSession: false,
+                    autoRefreshToken: false,
+                    detectSessionInUrl: false
+                }
+            });
+
+            // 2. Create User in Auth
+            const { data: authData, error: authError } = await tempSupabase.auth.signUp({
+                email: createForm.email,
+                password: createForm.password,
+                options: {
+                    data: {
+                        username: createForm.username
+                    }
+                }
+            });
+
+            if (authError) throw authError;
+            if (!authData.user) throw new Error("Usuário não criado.");
+
+            // 3. Insert into Public Users
+            const newUser = {
+                user_id: authData.user.id, // Use the real Auth ID
+                username: createForm.username,
+                email: createForm.email,
+                role: createForm.role_id,
+                sector: createForm.sector_id,
+                lider: createForm.lider || false,
+                acesso_med: createForm.acesso_med,
+                // active: true, // removed
+                created_at: new Date().toISOString()
+            };
+
+            const { error } = await supabase
+                .from('users')
+                .insert([newUser]);
+
+            if (error) {
+                // Optional: Rollback auth user creation if public insert fails (complex without admin api, skipping for now)
+                throw error;
+            }
+
+            await fetchUsers();
+            setIsCreateModalOpen(false);
+            setCreateForm({ active: true, lider: false });
+            alert('Colaborador criado com sucesso! O Login já está ativo.');
+        } catch (error: any) {
+            console.error("Erro ao criar usuário:", error);
+            alert(`Erro ao criar usuário: ${error.message || error}`);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     const filteredUsers = users.filter(user => {
         // Filter by Search Term
         const matchesSearch = user.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -290,6 +360,13 @@ export function Usuarios() {
                 <div className="flex items-center gap-3 w-full md:w-auto">
                     {!isSelectionMode && (
                         <>
+                            <button
+                                onClick={() => setIsCreateModalOpen(true)}
+                                className="flex items-center gap-2 bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-green-700 transition-colors shadow-sm shadow-green-500/20"
+                            >
+                                <UserPlus size={18} />
+                                Novo Colaborador
+                            </button>
                             <button
                                 onClick={() => setIsEditPointsModalOpen(true)}
                                 className="flex items-center gap-2 bg-amber-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-amber-600 transition-colors shadow-sm shadow-amber-500/20"
@@ -466,6 +543,192 @@ export function Usuarios() {
                 onClose={() => setIsEditPointsModalOpen(false)}
                 users={users.map(u => ({ id: u.id, user_id: u.user_id, username: u.username, img_url: u.img_url, role_id: u.role?.id || u.role_id }))}
             />
+
+            {/* CREATE USER MODAL */}
+            {isCreateModalOpen && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex justify-center items-center p-4">
+                    <div className="bg-white w-full max-w-2xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
+                        {/* Header */}
+                        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-2xl">
+                            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-3">
+                                <div className="bg-green-100 p-2 rounded-xl text-green-600">
+                                    <UserPlus size={20} />
+                                </div>
+                                Novo Colaborador
+                            </h2>
+                            <button
+                                onClick={() => setIsCreateModalOpen(false)}
+                                className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Form Body */}
+                        <div className="p-8 overflow-y-auto space-y-6">
+                            {/* Avatar Placeholder */}
+                            <div className="flex flex-col items-center justify-center mb-6">
+                                <div className="w-24 h-24 rounded-full bg-slate-100 mb-3 overflow-hidden border-4 border-white shadow-lg flex items-center justify-center text-slate-300">
+                                    <UserIcon size={40} />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Username */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-700">Nome Completo</label>
+                                    <div className="relative">
+                                        <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                        <input
+                                            type="text"
+                                            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
+                                            value={createForm.username || ''}
+                                            onChange={(e) => setCreateForm({ ...createForm, username: e.target.value })}
+                                            placeholder="Ex: João da Silva"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Email */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-700">Email Corporativo</label>
+                                    <div className="relative">
+                                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                        <input
+                                            type="email"
+                                            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
+                                            value={createForm.email || ''}
+                                            onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
+                                            placeholder="Ex: joao@empresa.com"
+                                            autoComplete="off"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Password */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-700">Senha de Acesso</label>
+                                    <div className="relative">
+                                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                        <input
+                                            type={showPassword ? 'text' : 'password'}
+                                            className="w-full pl-10 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
+                                            value={createForm.password || ''}
+                                            onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+                                            placeholder="••••••••"
+                                            autoComplete="new-password"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                                        >
+                                            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Role */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-700">Cargo / Função</label>
+                                    <div className="relative">
+                                        <Shield className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                        <select
+                                            className="w-full pl-10 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm appearance-none"
+                                            value={createForm.role_id || ''}
+                                            onChange={(e) => setCreateForm({ ...createForm, role_id: Number(e.target.value) })}
+                                        >
+                                            <option value="">Selecione...</option>
+                                            {roles.map(r => (
+                                                <option key={r.id} value={r.id}>{r.name_roles}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Sector */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-700">Setor / Departamento</label>
+                                    <div className="relative">
+                                        <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                        <select
+                                            className="w-full pl-10 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm appearance-none"
+                                            value={createForm.sector_id || ''}
+                                            onChange={(e) => setCreateForm({ ...createForm, sector_id: Number(e.target.value) })}
+                                        >
+                                            <option value="">Selecione...</option>
+                                            {sectors.map(s => (
+                                                <option key={s.id} value={s.id}>{s.sector_name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Acesso Gama Recep */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-700">Acesso Gama Recep</label>
+                                    <div className="relative group">
+                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-hover:text-blue-500 transition-colors pointer-events-none">
+                                            <Stethoscope size={18} />
+                                        </div>
+                                        <select
+                                            className="w-full pl-10 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm appearance-none transition-all shadow-sm hover:border-blue-300 cursor-pointer text-slate-700 font-medium"
+                                            value={createForm.acesso_med || ''}
+                                            onChange={(e) => setCreateForm({ ...createForm, acesso_med: Number(e.target.value) || null })}
+                                        >
+                                            <option value="">Selecione o tipo de acesso...</option>
+                                            {medProfiles.map(p => (
+                                                <option key={p.id} value={p.id}>{p.id} - {p.acesso}</option>
+                                            ))}
+                                        </select>
+                                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 group-hover:text-slate-600 transition-colors pointer-events-none">
+                                            <ChevronDown size={16} />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Leader Toggle */}
+                                <div className="col-span-1 md:col-span-2 pt-2">
+                                    <label className="flex items-center gap-3 p-4 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            checked={createForm.lider || false}
+                                            onChange={(e) => setCreateForm({ ...createForm, lider: e.target.checked })}
+                                            className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 border-gray-300"
+                                        />
+                                        <div>
+                                            <span className="font-bold text-slate-800 text-sm block">Atribuir Perfil de Liderança</span>
+                                            <span className="text-xs text-slate-500">Permite acesso a dashboards de gestão e relatórios de equipe</span>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-6 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl flex justify-end items-center gap-3">
+                            <button
+                                onClick={() => setIsCreateModalOpen(false)}
+                                className="px-5 py-2.5 rounded-xl text-slate-600 font-medium hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all text-sm"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleCreateUser}
+                                disabled={isSaving}
+                                className="bg-green-600 text-white px-8 py-2.5 rounded-xl font-bold hover:bg-green-700 active:scale-95 transition-all shadow-lg shadow-green-500/20 flex items-center gap-2 text-sm disabled:opacity-70 disabled:cursor-not-allowed"
+                            >
+                                {isSaving ? 'Criando...' : (
+                                    <>
+                                        <UserPlus size={18} />
+                                        Criar Colaborador
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* EDIT USER MODAL */}
             {isEditModalOpen && selectedUser && (
