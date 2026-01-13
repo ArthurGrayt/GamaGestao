@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react';
+import { format } from 'date-fns';
 import { FilterContext } from '../layouts/MainLayout';
 import { KPICard } from '../components/KPICard';
 import { supabase } from '../services/supabase';
@@ -21,10 +22,10 @@ export const Dashboard: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const startDate = filter.startDate.toISOString();
-        const endDate = filter.endDate.toISOString();
-        const prevStart = filter.prevStartDate.toISOString();
-        const prevEnd = filter.prevEndDate.toISOString();
+        const startDate = format(filter.startDate, "yyyy-MM-dd'T'00:00:00");
+        const endDate = format(filter.endDate, "yyyy-MM-dd'T'23:59:59");
+        const prevStart = format(filter.prevStartDate, "yyyy-MM-dd'T'00:00:00");
+        const prevEnd = format(filter.prevEndDate, "yyyy-MM-dd'T'23:59:59");
 
         // 1. Revenue (Financeiro Transacoes) - Receber AND Status != Cancelado
         const { data: currRev } = await supabase.from('financeiro_transacoes')
@@ -66,13 +67,13 @@ export const Dashboard: React.FC = () => {
         // 4. Tasks (Kanban Done)
         const { count: currTask } = await supabase.from('kanban')
           .select('*', { count: 'exact', head: true })
-          .eq('status', 'concluido')
+          .not('concluido_em', 'is', null) // Ensure it is not null, though range implies it
           .gte('concluido_em', startDate)
           .lte('concluido_em', endDate);
 
         const { count: prevTask } = await supabase.from('kanban')
           .select('*', { count: 'exact', head: true })
-          .eq('status', 'concluido')
+          .not('concluido_em', 'is', null)
           .gte('concluido_em', prevStart)
           .lte('concluido_em', prevEnd);
 
