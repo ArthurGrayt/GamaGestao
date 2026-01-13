@@ -282,7 +282,41 @@ export const FormularioPublico: React.FC = () => {
             .eq('form_id', formData.id)
             .order('question_order', { ascending: true });
 
-        if (questionData) setQuestions(questionData);
+        if (questionData) {
+            // Randomize questions while preserving sections
+            const shuffle = (array: any[]) => {
+                const newArr = [...array];
+                for (let i = newArr.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+                }
+                return newArr;
+            };
+
+            const shuffledQuestions: any[] = [];
+            let currentSectionBuffer: any[] = [];
+
+            questionData.forEach(q => {
+                if (q.question_type === 'section_break') {
+                    // Flush current section shuffled
+                    if (currentSectionBuffer.length > 0) {
+                        shuffledQuestions.push(...shuffle(currentSectionBuffer));
+                        currentSectionBuffer = [];
+                    }
+                    // Push break as is
+                    shuffledQuestions.push(q);
+                } else {
+                    currentSectionBuffer.push(q);
+                }
+            });
+
+            // Flush remaining
+            if (currentSectionBuffer.length > 0) {
+                shuffledQuestions.push(...shuffle(currentSectionBuffer));
+            }
+
+            setQuestions(shuffledQuestions);
+        }
 
         await minWaitPromise;
         setLoading(false);

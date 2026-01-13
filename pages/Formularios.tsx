@@ -2142,7 +2142,7 @@ export const Formularios: React.FC = () => {
                                         />
                                     </div>
                                     <div className="w-full sm:w-48">
-                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">CRP</label>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Documento de identificação</label>
                                         <input
                                             type="text"
                                             value={technicalCrp}
@@ -2506,7 +2506,7 @@ export const Formularios: React.FC = () => {
                                     Responsável Técnica: {technicalResponsible || '__________________________________'}
                                 </p>
                                 <p className="text-sm text-slate-600 font-medium mt-1">
-                                    (CRP {technicalCrp || '____________'})
+                                    (Documento de identificação {technicalCrp || '____________'})
                                 </p>
                             </div>
                         </div>
