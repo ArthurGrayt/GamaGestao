@@ -28,56 +28,73 @@ export const Dashboard: React.FC = () => {
         const prevStart = getUTCStart(filter.prevStartDate);
         const prevEnd = getUTCEnd(filter.prevEndDate);
 
-        // 1. Revenue (Financeiro Transacoes) - Receber AND Status != Cancelado
-        const { data: currRev } = await supabase.from('financeiro_transacoes')
+        // Define Queries
+        const qCurrRev = supabase.from('financeiro_transacoes')
           .select('valor_original')
           .eq('tipo_transacao', 'Receber')
           .neq('status', 'Cancelado')
           .gte('data_emissao', startDate)
           .lt('data_emissao', endDate);
 
-        const { data: prevRev } = await supabase.from('financeiro_transacoes')
+        const qPrevRev = supabase.from('financeiro_transacoes')
           .select('valor_original')
           .eq('tipo_transacao', 'Receber')
           .neq('status', 'Cancelado')
           .gte('data_emissao', prevStart)
           .lt('data_emissao', prevEnd);
 
-        // 2. Clients (Novos Clientes)
-        const { count: currCli } = await supabase.from('clientes')
+        const qCurrCli = supabase.from('clientes')
           .select('*', { count: 'exact', head: true })
           .gte('created_at', startDate)
           .lt('created_at', endDate);
 
-        const { count: prevCli } = await supabase.from('clientes')
+        const qPrevCli = supabase.from('clientes')
           .select('*', { count: 'exact', head: true })
           .gte('created_at', prevStart)
           .lt('created_at', prevEnd);
 
-        // 3. Appointments (Agendamentos)
-        const { count: currApp } = await supabase.from('agendamentos')
+        const qCurrApp = supabase.from('agendamentos')
           .select('*', { count: 'exact', head: true })
           .gte('data_atendimento', startDate)
           .lt('data_atendimento', endDate);
 
-        const { count: prevApp } = await supabase.from('agendamentos')
+        const qPrevApp = supabase.from('agendamentos')
           .select('*', { count: 'exact', head: true })
           .gte('data_atendimento', prevStart)
           .lt('data_atendimento', prevEnd);
 
-        // 4. Tasks (Kanban Done)
-        const { count: currTask } = await supabase.from('kanban')
+        const qCurrTask = supabase.from('kanban')
           .select('*', { count: 'exact', head: true })
-          .not('concluido_em', 'is', null) // Ensure it is not null, though range implies it
+          .not('concluido_em', 'is', null)
           .gte('concluido_em', startDate)
           .lt('concluido_em', endDate);
 
-        const { count: prevTask } = await supabase.from('kanban')
+        const qPrevTask = supabase.from('kanban')
           .select('*', { count: 'exact', head: true })
           .not('concluido_em', 'is', null)
           .gte('concluido_em', prevStart)
           .lt('concluido_em', prevEnd);
 
+        // Execute all in parallel
+        const [
+          { data: currRev },
+          { data: prevRev },
+          { count: currCli },
+          { count: prevCli },
+          { count: currApp },
+          { count: prevApp },
+          { count: currTask },
+          { count: prevTask }
+        ] = await Promise.all([
+          qCurrRev,
+          qPrevRev,
+          qCurrCli,
+          qPrevCli,
+          qCurrApp,
+          qPrevApp,
+          qCurrTask,
+          qPrevTask
+        ]);
 
         const totalCurrRev = currRev?.reduce((acc, curr) => acc + (Number(curr.valor_original) || 0), 0) || 0;
         const totalPrevRev = prevRev?.reduce((acc, curr) => acc + (Number(curr.valor_original) || 0), 0) || 0;

@@ -1,10 +1,10 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState, useMemo } from 'react';
 import { format } from 'date-fns';
 import { getUTCStart, getUTCEnd } from '../utils/dateUtils';
 import { FilterContext } from '../layouts/MainLayout';
 import { KPICard } from '../components/KPICard';
 import { supabase } from '../services/supabase';
-import { UserCheck, Clock, Activity, X, Search } from 'lucide-react'; // Added Search icon
+import { UserCheck, Clock, Activity, X, Search } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export const Saude: React.FC = () => {
@@ -59,8 +59,10 @@ export const Saude: React.FC = () => {
           return data || [];
         }
 
-        const curr = await fetchAgendamentos(startDate, endDate);
-        const prev = await fetchAgendamentos(prevStart, prevEnd);
+        const [curr, prev] = await Promise.all([
+          fetchAgendamentos(startDate, endDate),
+          fetchAgendamentos(prevStart, prevEnd)
+        ]);
 
         setCurrData(curr);
 
@@ -118,19 +120,22 @@ export const Saude: React.FC = () => {
     openModal('Pendentes / Faltas', list);
   };
 
-  const filteredList = modalList.filter(item => {
-    const searchLower = searchTerm.toLowerCase();
+  const filteredList = useMemo(() => {
+    if (!isModalOpen) return [];
+    return modalList.filter(item => {
+      const searchLower = searchTerm.toLowerCase();
 
-    const nome = item.colaboradores?.nome?.toLowerCase() || '';
-    const setor = item.colaboradores?.setor?.toLowerCase() || '';
-    const cargo = item.colaboradores?.cargos?.nome?.toLowerCase() || '';
-    const unidade = item.colaboradores?.unidades?.nome_unidade?.toLowerCase() || '';
+      const nome = item.colaboradores?.nome?.toLowerCase() || '';
+      const setor = item.colaboradores?.setor?.toLowerCase() || '';
+      const cargo = item.colaboradores?.cargos?.nome?.toLowerCase() || '';
+      const unidade = item.colaboradores?.unidades?.nome_unidade?.toLowerCase() || '';
 
-    return nome.includes(searchLower) ||
-      setor.includes(searchLower) ||
-      cargo.includes(searchLower) ||
-      unidade.includes(searchLower);
-  });
+      return nome.includes(searchLower) ||
+        setor.includes(searchLower) ||
+        cargo.includes(searchLower) ||
+        unidade.includes(searchLower);
+    });
+  }, [modalList, searchTerm, isModalOpen]);
 
   return (
     <div className="space-y-8 relative">
