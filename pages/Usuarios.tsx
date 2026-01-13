@@ -227,6 +227,38 @@ export function Usuarios() {
         }
     };
 
+    const handleResetPassword = async () => {
+        const email = editForm.email?.trim();
+        if (!email) {
+            alert("Email não encontrado para este usuário.");
+            return;
+        }
+
+        if (!confirm(`Deseja enviar um email de redefinição de senha para ${email}?`)) {
+            return;
+        }
+
+        setIsSaving(true);
+        try {
+            console.log(`Tentando enviar reset password para: ${email} com redirect para https://gamaredefpass.vercel.app/redefinir-senha`);
+
+            const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+                redirectTo: 'https://gamaredefpass.vercel.app/redefinir-senha'
+            });
+
+            console.log('Resultado do reset password:', { data, error });
+
+            if (error) throw error;
+
+            alert(`Solicitação enviada realizado com sucesso!\n\nSe o email ${email} estiver cadastrado no sistema de Autenticação, ele receberá o link em instantes.\n\nVerifique também a caixa de Spam.`);
+        } catch (error: any) {
+            console.error("Erro ao enviar email de redefinição:", error);
+            alert(`Erro ao enviar email: ${error.message || error}`);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     const handleDeleteUser = async () => {
         if (!selectedUser) return;
 
@@ -890,8 +922,8 @@ export function Usuarios() {
                         </div>
 
                         {/* Footer */}
-                        <div className="p-6 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl flex justify-between items-center">
-                            <div className="flex gap-3">
+                        <div className="p-6 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl flex flex-wrap justify-between items-center gap-4">
+                            <div className="flex gap-3 flex-wrap">
                                 <button
                                     onClick={handleDeleteUser}
                                     className="px-5 py-2.5 rounded-xl text-red-500 font-medium hover:bg-red-50 border border-transparent hover:border-red-100 transition-all text-sm flex items-center gap-2"
@@ -900,26 +932,14 @@ export function Usuarios() {
                                     Apagar Perfil
                                 </button>
                                 <button
-                                    onClick={handleToggleActiveStatus}
-                                    className={`px-5 py-2.5 rounded-xl font-medium border border-transparent transition-all text-sm flex items-center gap-2 ${selectedUser.active === false
-                                        ? 'text-teal-600 hover:bg-teal-50 hover:border-teal-100'
-                                        : 'text-slate-500 hover:bg-slate-100 hover:border-slate-200'
-                                        }`}
+                                    onClick={handleResetPassword}
+                                    className="px-5 py-2.5 rounded-xl text-amber-600 font-medium hover:bg-amber-50 border border-transparent hover:border-amber-100 transition-all text-sm flex items-center gap-2"
                                 >
-                                    {selectedUser.active === false ? (
-                                        <>
-                                            <RefreshCcw size={18} />
-                                            Reexibir
-                                        </>
-                                    ) : (
-                                        <>
-                                            <EyeOff size={18} />
-                                            Ocultar
-                                        </>
-                                    )}
+                                    <Lock size={18} />
+                                    Esqueci minha senha
                                 </button>
                             </div>
-                            <div className="flex gap-3">
+                            <div className="flex gap-3 ml-auto">
                                 <button
                                     onClick={() => setIsEditModalOpen(false)}
                                     className="px-5 py-2.5 rounded-xl text-slate-600 font-medium hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all text-sm"
