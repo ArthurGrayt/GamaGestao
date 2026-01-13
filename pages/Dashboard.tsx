@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react';
-import { format } from 'date-fns';
+// import { format } from 'date-fns'; // Removed
+import { getUTCStart, getUTCEnd } from '../utils/dateUtils';
 import { FilterContext } from '../layouts/MainLayout';
 import { KPICard } from '../components/KPICard';
 import { supabase } from '../services/supabase';
@@ -22,10 +23,10 @@ export const Dashboard: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const startDate = format(filter.startDate, "yyyy-MM-dd'T'00:00:00");
-        const endDate = format(filter.endDate, "yyyy-MM-dd'T'23:59:59");
-        const prevStart = format(filter.prevStartDate, "yyyy-MM-dd'T'00:00:00");
-        const prevEnd = format(filter.prevEndDate, "yyyy-MM-dd'T'23:59:59");
+        const startDate = getUTCStart(filter.startDate);
+        const endDate = getUTCEnd(filter.endDate);
+        const prevStart = getUTCStart(filter.prevStartDate);
+        const prevEnd = getUTCEnd(filter.prevEndDate);
 
         // 1. Revenue (Financeiro Transacoes) - Receber AND Status != Cancelado
         const { data: currRev } = await supabase.from('financeiro_transacoes')
@@ -33,49 +34,49 @@ export const Dashboard: React.FC = () => {
           .eq('tipo_transacao', 'Receber')
           .neq('status', 'Cancelado')
           .gte('data_emissao', startDate)
-          .lte('data_emissao', endDate);
+          .lt('data_emissao', endDate);
 
         const { data: prevRev } = await supabase.from('financeiro_transacoes')
           .select('valor_original')
           .eq('tipo_transacao', 'Receber')
           .neq('status', 'Cancelado')
           .gte('data_emissao', prevStart)
-          .lte('data_emissao', prevEnd);
+          .lt('data_emissao', prevEnd);
 
         // 2. Clients (Novos Clientes)
         const { count: currCli } = await supabase.from('clientes')
           .select('*', { count: 'exact', head: true })
           .gte('created_at', startDate)
-          .lte('created_at', endDate);
+          .lt('created_at', endDate);
 
         const { count: prevCli } = await supabase.from('clientes')
           .select('*', { count: 'exact', head: true })
           .gte('created_at', prevStart)
-          .lte('created_at', prevEnd);
+          .lt('created_at', prevEnd);
 
         // 3. Appointments (Agendamentos)
         const { count: currApp } = await supabase.from('agendamentos')
           .select('*', { count: 'exact', head: true })
           .gte('data_atendimento', startDate)
-          .lte('data_atendimento', endDate);
+          .lt('data_atendimento', endDate);
 
         const { count: prevApp } = await supabase.from('agendamentos')
           .select('*', { count: 'exact', head: true })
           .gte('data_atendimento', prevStart)
-          .lte('data_atendimento', prevEnd);
+          .lt('data_atendimento', prevEnd);
 
         // 4. Tasks (Kanban Done)
         const { count: currTask } = await supabase.from('kanban')
           .select('*', { count: 'exact', head: true })
           .not('concluido_em', 'is', null) // Ensure it is not null, though range implies it
           .gte('concluido_em', startDate)
-          .lte('concluido_em', endDate);
+          .lt('concluido_em', endDate);
 
         const { count: prevTask } = await supabase.from('kanban')
           .select('*', { count: 'exact', head: true })
           .not('concluido_em', 'is', null)
           .gte('concluido_em', prevStart)
-          .lte('concluido_em', prevEnd);
+          .lt('concluido_em', prevEnd);
 
 
         const totalCurrRev = currRev?.reduce((acc, curr) => acc + (Number(curr.valor_original) || 0), 0) || 0;

@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { format } from 'date-fns';
+import { getUTCStart, getUTCEnd } from '../utils/dateUtils';
 import { FilterContext } from '../layouts/MainLayout';
 import { KPICard } from '../components/KPICard';
 import { supabase } from '../services/supabase';
@@ -30,10 +31,10 @@ export const Saude: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const startDate = format(filter.startDate, "yyyy-MM-dd'T'00:00:00");
-        const endDate = format(filter.endDate, "yyyy-MM-dd'T'23:59:59");
-        const prevStart = format(filter.prevStartDate, "yyyy-MM-dd'T'00:00:00");
-        const prevEnd = format(filter.prevEndDate, "yyyy-MM-dd'T'23:59:59");
+        const startDate = getUTCStart(filter.startDate);
+        const endDate = getUTCEnd(filter.endDate);
+        const prevStart = getUTCStart(filter.prevStartDate);
+        const prevEnd = getUTCEnd(filter.prevEndDate);
 
         const fetchAgendamentos = async (start: string, end: string) => {
           const { data, error } = await supabase.from('agendamentos')
@@ -51,7 +52,8 @@ export const Saude: React.FC = () => {
                 )
             `)
             .gte('data_atendimento', start)
-            .lte('data_atendimento', end);
+            .lt('data_atendimento', end)
+            .range(0, 9999);
 
           if (error) throw error;
           return data || [];
