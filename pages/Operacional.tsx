@@ -246,14 +246,14 @@ export const Operacional: React.FC = () => {
           }
         });
 
-        // D. WIP (Snapshot: All tasks NOT done) - GLOBAL
-        const currWip = accumulatedTasks?.filter(t => !isDoneStatus(t.status)).length || 0;
+        // D. WIP (Snapshot: Status "Em andamento")
+        const currWip = accumulatedTasks?.filter(t => normalize(t.status) === 'em andamento').length || 0;
 
         // Previous WIP (Approximation via Query or Filter)
         let prevWipQuery = supabase
           .from('kanban')
           .select('*', { count: 'exact', head: true })
-          .not('status', 'ilike', '%conclu%') // Simple filter for safety
+          .eq('status', 'Em andamento') // Strict filter
           .lte('created_at', prevEnd);
         prevWipQuery = applyCommonFilters(prevWipQuery);
         const { count: pWip } = await prevWipQuery;
@@ -383,11 +383,8 @@ export const Operacional: React.FC = () => {
       // Done in Range (Throughput)
       filtered = rawTasks.filter(t => t.concluido_em && t.concluido_em >= startStr && t.concluido_em <= endStr);
     } else if (type === 'wip') {
-      // Not Done Snapshot
-      filtered = rawTasks.filter(t => {
-        const isDone = ['concluído', 'concluido', 'concluida', 'concluída', 'done', 'finalizado'].some(d => normalize(t.status) === d);
-        return !isDone;
-      });
+      // Status "Em andamento" Snapshot
+      filtered = rawTasks.filter(t => normalize(t.status) === 'em andamento');
     } else if (type === 'dynamic') {
       // Specific Status Snapshot
       const isDoneCol = ['concluído', 'concluido', 'concluida', 'concluída', 'done', 'finalizado'].some(d => normalize(title) === d);
