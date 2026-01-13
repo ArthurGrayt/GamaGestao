@@ -1895,7 +1895,6 @@ export const Formularios: React.FC = () => {
                         <div className="flex items-center gap-4 mb-6">
                             <Button variant="outline" onClick={() => {
                                 setSelectedRespondent(null);
-                                setAnalyticsTab('overview');
                             }} className="px-3 gap-2">
                                 <ArrowLeft size={16} />
                                 Voltar para lista
