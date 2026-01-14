@@ -356,7 +356,8 @@ export const EditPointsModal: React.FC<EditPointsModalProps> = ({ isOpen, onClos
         try {
             const payload = {
                 titulo: holidayTitle,
-                data: format(selectedHolidayDate, 'yyyy-MM-dd'),
+                // Append UTC Noon to prevent timezone shifts (e.g. 00:00 -> Previous Day 21:00)
+                data: `${format(selectedHolidayDate, 'yyyy-MM-dd')}T12:00:00Z`,
                 tipo: 'feriado'
             };
 

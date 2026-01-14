@@ -2132,7 +2132,7 @@ export const Formularios: React.FC = () => {
                             >
                                 <div className="flex flex-col sm:flex-row gap-4 w-full">
                                     <div className="flex-1">
-                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome da Responsável Técnica</label>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome do Responsável Técnico</label>
                                         <input
                                             type="text"
                                             value={technicalResponsible}
@@ -2503,7 +2503,7 @@ export const Formularios: React.FC = () => {
                             {/* Assinatura Responsável Técnica */}
                             <div className="mt-16 pt-8 border-t border-slate-200 text-center break-inside-avoid" style={{ breakInside: 'avoid' }}>
                                 <p className="text-lg font-bold text-slate-800">
-                                    Responsável Técnica: {technicalResponsible || '__________________________________'}
+                                    Responsável Técnico: {technicalResponsible || '__________________________________'}
                                 </p>
                                 <p className="text-sm text-slate-600 font-medium mt-1">
                                     (Documento de identificação {technicalCrp || '____________'})

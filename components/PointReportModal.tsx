@@ -34,7 +34,7 @@ interface PointReportModalProps {
 
 interface PointRecord {
     id: number;
-    user_id: string;
+    user_id: string; // Changed from user_id
     datahora: string;
     ordem?: number;
     tipo?: string;
@@ -58,6 +58,8 @@ export const PointReportModal: React.FC<PointReportModalProps> = ({ isOpen, onCl
     const [reports, setReports] = useState<UserReport[]>([]);
     const [view, setView] = useState<'config' | 'report'>('config');
 
+    const [considerHolidays, setConsiderHolidays] = useState(true);
+
     if (!isOpen) return null;
 
     const generateReport = async () => {
@@ -79,17 +81,40 @@ export const PointReportModal: React.FC<PointReportModalProps> = ({ isOpen, onCl
 
             if (error) throw error;
 
+            let holidays: string[] = [];
+            if (considerHolidays) {
+                const { data: holidaysData } = await supabase
+                    .from('holidays')
+                    .select('data')
+                    .gte('data', start)
+                    .lte('data', end);
+
+                if (holidaysData) {
+                    holidays = holidaysData.map(h => format(parseISO(h.data), 'yyyy-MM-dd'));
+                }
+            }
+
             const records: PointRecord[] = data || [];
 
             // Calculate Business Days in Range
             const rangeStart = parseISO(startDate);
             const rangeEnd = parseISO(endDate);
             const daysInRange = eachDayOfInterval({ start: rangeStart, end: rangeEnd });
+
             const businessDaysCount = daysInRange.filter(day => {
                 const dayOfWeek = day.getDay();
-                // 0 is Sunday, 6 is Saturday. We want 1-5 (Mon-Fri).
-                return dayOfWeek !== 0 && dayOfWeek !== 6;
+                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+                if (isWeekend) return false;
+
+                if (considerHolidays) {
+                    const formattedDay = format(day, 'yyyy-MM-dd');
+                    if (holidays.includes(formattedDay)) return false;
+                }
+
+                return true;
             }).length;
+
             // const targetMinutes = businessDaysCount * (8 * 60 + 45); // Moved to inside map
 
             // Custom Sort Function
@@ -147,18 +172,7 @@ export const PointReportModal: React.FC<PointReportModalProps> = ({ isOpen, onCl
                 const dailyTarget = isIntern ? (6 * 60) : (8 * 60 + 45);
                 const targetMinutes = businessDaysCount * dailyTarget;
 
-                const balance = targetMinutes - totalMin; // Note: Current logic seems to be Target - Total. Usually Balance = Total - Target?
-                // Previously: const balance = targetMinutes - totalMin; -> Positive means DEBT?
-                // Or if user wants "Credit", it should be Total - Target.
-                // Assuming existing logic: "balanceMinutes: balance" -> Checks how it's displayed.
-                // If existing code had: const balance = targetMinutes - totalMin; 
-                // Let's stick to existing direction unless user complains.
-                // Wait, if target is 100, and I worked 90. Balance should be -10 (Missing).
-                // If I define balance = 100 - 90 = 10. That's "Missing 10".
-                // I will keep the subtraction order consistent with previous global var usage, 
-                // but checking previous global var logic: 
-                // const balance = targetMinutes - totalMin;
-                // Yes, I will stick to that.
+                const balance = targetMinutes - totalMin;
 
                 return {
                     user,
@@ -275,6 +289,21 @@ export const PointReportModal: React.FC<PointReportModalProps> = ({ isOpen, onCl
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Holiday Toggle */}
+                            <div className="flex items-center gap-3 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                                <input
+                                    type="checkbox"
+                                    id="considerHolidays"
+                                    checked={considerHolidays}
+                                    onChange={(e) => setConsiderHolidays(e.target.checked)}
+                                    className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 border-gray-300"
+                                />
+                                <label htmlFor="considerHolidays" className="text-sm text-slate-700 font-medium cursor-pointer select-none">
+                                    Descontar <span className="font-bold text-slate-900">feriados</span> da meta mensal
+                                </label>
+                            </div>
+
                             <p className="text-xs text-slate-400 text-center -mt-2">
                                 * Sabádos e Domingos são desconsiderados automaticamente do cálculo.
                             </p>
