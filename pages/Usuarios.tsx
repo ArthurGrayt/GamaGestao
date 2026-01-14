@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../services/supabase';
-import { Users, Search, Filter, Shield, Briefcase, User as UserIcon, Crown, FileText, CheckSquare, Square, X, Edit2, Save, Camera, Calendar, Mail, Stethoscope, Trash2, Eye, EyeOff, Archive, RefreshCcw, ChevronDown, UserPlus, Lock } from 'lucide-react';
+import { Users, Search, Filter, Shield, Briefcase, User as UserIcon, Crown, FileText, CheckSquare, Square, X, Edit2, Save, Camera, Calendar, Mail, Stethoscope, Trash2, Eye, EyeOff, Archive, RefreshCcw, ChevronDown, UserPlus, Lock, Clock } from 'lucide-react';
 import { PointReportModal } from '../components/PointReportModal';
 import { EditPointsModal } from '../components/EditPointsModal';
+import { JustificationDetailsModal, Justification } from '../components/JustificationDetailsModal';
 
 interface Role {
     id: number;
@@ -35,6 +36,8 @@ interface User {
     acesso_med?: number;
     acesso_med_rel?: PerfilMed;
     active?: boolean;
+    status?: 'Disponível' | 'Almoçando' | 'Indisponível' | 'Justificativa pendente'; // Added status field
+    pendingJustification?: Justification;
 }
 
 export function Usuarios() {
@@ -56,6 +59,11 @@ export function Usuarios() {
     const [isEditPointsModalOpen, setIsEditPointsModalOpen] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
+    // Justification Modal State
+    const [selectedJustification, setSelectedJustification] = useState<Justification | null>(null);
+    const [isJustificationModalOpen, setIsJustificationModalOpen] = useState(false);
+    const [justificationUser, setJustificationUser] = useState<string>('');
+
     // Edit Form State
     const [editForm, setEditForm] = useState<Partial<User>>({});
 
@@ -68,6 +76,22 @@ export function Usuarios() {
         fetchUsers();
         fetchAuxData();
     }, []);
+
+    // NEW: Function to determine status based on last point
+    const calculateStatus = (lastType?: string): 'Disponível' | 'Almoçando' | 'Indisponível' => {
+        if (!lastType) return 'Indisponível'; // Default if no record today
+
+        if (lastType === 'Entrada' || lastType === 'Volta do almoço') {
+            return 'Disponível';
+        }
+        if (lastType === 'Saída para almoço') {
+            return 'Almoçando';
+        }
+        if (lastType === 'Fim de expediente') {
+            return 'Indisponível';
+        }
+        return 'Indisponível';
+    };
 
     const fetchUsers = async () => {
         setLoading(true);
@@ -83,7 +107,59 @@ export function Usuarios() {
                 .neq('role', 999);
 
             if (error) throw error;
-            setUsers(data || []);
+
+            let fetchedUsers: User[] = data || [];
+            const userIds = fetchedUsers.map(u => u.user_id);
+
+            if (userIds.length > 0) {
+                // 1. Fetch Points for Status
+                const todayStart = new Date();
+                todayStart.setHours(0, 0, 0, 0);
+                const todayEnd = new Date();
+                todayEnd.setHours(23, 59, 59, 999);
+
+                console.log('Fetching points for date range:', todayStart.toISOString(), 'to', todayEnd.toISOString());
+                const { data: pointsData, error: pointsError } = await supabase
+                    .from('ponto_registros')
+                    .select('user_id, tipo, datahora')
+                    .in('user_id', userIds)
+                    .gte('datahora', todayStart.toISOString())
+                    .lte('datahora', todayEnd.toISOString())
+                    .order('datahora', { ascending: true }); // Get all to find the last one
+
+                // 2. Fetch Pending Justifications (Global check)
+                const { data: justData, error: justError } = await supabase
+                    .from('justificativa')
+                    .select('*')
+                    .in('usuario', userIds)
+                    .or('aprovada.eq.false,aprovada.is.null'); // Pending (null) or Rejected (false) triggers status
+
+
+                fetchedUsers = fetchedUsers.map(u => {
+                    // Check Justification First
+                    const myJustifications = justData?.filter(j => j.usuario === u.user_id) || [];
+                    const hasPending = myJustifications.length > 0;
+
+                    let status: any = 'Indisponível';
+
+                    if (hasPending) {
+                        status = 'Justificativa pendente';
+                    } else {
+                        // Calculate standard status
+                        const myPoints = pointsData?.filter(p => p.user_id === u.user_id) || [];
+                        const lastPoint = myPoints.length > 0 ? myPoints[myPoints.length - 1] : null;
+                        status = calculateStatus(lastPoint?.tipo);
+                    }
+
+                    return {
+                        ...u,
+                        status: status,
+                        pendingJustification: hasPending ? myJustifications[0] : undefined // Attach the first one found
+                    };
+                });
+            }
+
+            setUsers(fetchedUsers);
         } catch (error) {
             console.error('Erro ao buscar usuários:', error);
         } finally {
@@ -151,6 +227,15 @@ export function Usuarios() {
             acesso_med: user.acesso_med ?? (user.acesso_med_rel?.id)
         });
         setIsEditModalOpen(true);
+    };
+
+    const handleOpenJustification = (e: React.MouseEvent, user: User) => {
+        e.stopPropagation(); // Prevent opening user modal
+        if (user.pendingJustification) {
+            setSelectedJustification(user.pendingJustification);
+            setJustificationUser(user.username);
+            setIsJustificationModalOpen(true);
+        }
     };
 
     const handleSaveUser = async () => {
@@ -358,15 +443,6 @@ export function Usuarios() {
             user.sector?.sector_name?.toLowerCase().includes(searchTerm.toLowerCase());
 
         // Filter by Active Status
-        // If showHidden is true: show ONLY hidden? Or All? 
-        // User request: "ver os ocultos". Usually implies showing hidden ones.
-        // Let's implement: Default (showHidden=false) -> Show only Active.
-        // Toggled (showHidden=true) -> Show only Inactive (Hidden).
-        // Or Show All? "Ver ocultos e reexibir" implies finding them.
-        // I will make it Show All or Show Hidden. 
-        // Let's try: showHidden = true => Show ALL (Active + Inactive). 
-        // Actually, distinct lists are often better. 
-        // Let's strictly toggle: Active Users vs Archived Users.
         const isActive = user.active !== false; // Null or True = Active. False = Inactive.
 
         if (showHidden) {
@@ -376,6 +452,55 @@ export function Usuarios() {
     });
 
     const selectedUsersList = users.filter(u => selectedUserIds.has(u.id));
+
+    // Status Badge Helpers
+    const getStatusColor = (status?: string) => {
+        switch (status) {
+            case 'Disponível': return 'bg-green-100 text-green-700 border-green-200';
+            case 'Almoçando': return 'bg-amber-100 text-amber-700 border-amber-200';
+            case 'Indisponível': return 'bg-slate-100 text-slate-500 border-slate-200';
+            case 'Justificativa pendente': return 'bg-red-100 text-red-700 border-red-200 hover:bg-red-200 animate-pulse cursor-pointer';
+            default: return 'bg-slate-100 text-slate-500 border-slate-200';
+        }
+    };
+
+    const getStatusIcon = (status?: string) => {
+        switch (status) { // Only icons if needed, but text is requested. Using for decorative maybe?
+            default: return null;
+        }
+    };
+
+    const handleApproveJustification = async (id: number) => {
+        try {
+            const { error } = await supabase
+                .from('justificativa')
+                .update({ aprovada: true })
+                .eq('id', id);
+
+            if (error) throw error;
+            await fetchUsers();
+            alert("Justificativa aceita com sucesso!");
+        } catch (error) {
+            console.error("Erro ao aceitar justificativa:", error);
+            throw error; // Let modal handle error state
+        }
+    };
+
+    const handleRejectJustification = async (id: number) => {
+        try {
+            const { error } = await supabase
+                .from('justificativa')
+                .update({ aprovada: false })
+                .eq('id', id);
+
+            if (error) throw error;
+            await fetchUsers();
+            alert("Justificativa recusada com sucesso!");
+        } catch (error) {
+            console.error("Erro ao recusar justificativa:", error);
+            throw error; // Let modal handle error state
+        }
+    };
 
     return (
         <div className="h-full flex flex-col relative">
@@ -397,21 +522,25 @@ export function Usuarios() {
                                 className="flex items-center gap-2 bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-green-700 transition-colors shadow-sm shadow-green-500/20"
                             >
                                 <UserPlus size={18} />
-                                Novo Colaborador
+                                <span className="hidden xl:inline">Novo Colaborador</span>
+                                <span className="xl:hidden">Novo</span>
+
                             </button>
                             <button
                                 onClick={() => setIsEditPointsModalOpen(true)}
                                 className="flex items-center gap-2 bg-amber-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-amber-600 transition-colors shadow-sm shadow-amber-500/20"
                             >
                                 <Edit2 size={18} />
-                                Editar Pontos
+                                <span className="hidden xl:inline">Configuração de Ponto</span>
+                                <span className="xl:hidden">Config</span>
                             </button>
                             <button
                                 onClick={() => toggleSelectionMode()}
                                 className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/20"
                             >
                                 <FileText size={18} />
-                                Relatório de Ponto
+                                <span className="hidden xl:inline">Relatório de Ponto</span>
+                                <span className="xl:hidden">Relatório</span>
                             </button>
 
                         </>
@@ -429,7 +558,7 @@ export function Usuarios() {
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={18} />
                         <input
                             type="text"
-                            placeholder="Buscar por nome, cargo ou setor..."
+                            placeholder="Buscar..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full pl-10 pr-4 py-2.5 bg-white/60 border border-white/60 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-sm backdrop-blur-sm shadow-sm"
@@ -458,7 +587,7 @@ export function Usuarios() {
                             >
                                 {/* Checkbox for Selection Mode */}
                                 {isSelectionMode && (
-                                    <div className="absolute top-3 left-3 z-20">
+                                    <div className="absolute top-3 left-3 z-30">
                                         {isSelected ? (
                                             <div className="bg-blue-500 text-white rounded-lg p-1 shadow-md shadow-blue-500/30">
                                                 <CheckSquare size={18} className="fill-current" />
@@ -470,6 +599,14 @@ export function Usuarios() {
                                         )}
                                     </div>
                                 )}
+
+                                {/* STATUS BADGE - Absolute Position */}
+                                <div
+                                    onClick={(e) => user.status === 'Justificativa pendente' && handleOpenJustification(e, user)}
+                                    className={`absolute top-3 ${isSelectionMode ? 'left-12' : 'left-3'} z-20 px-2.5 py-1 rounded-lg text-[10px] uppercase font-bold tracking-wider border shadow-sm backdrop-blur-sm transition-all duration-300 ${getStatusColor(user.status)}`}
+                                >
+                                    {user.status || 'Indisponível'}
+                                </div>
 
                                 {/* Leader Badge */}
                                 {user.lider && (
@@ -484,7 +621,7 @@ export function Usuarios() {
 
                                 <div className="relative z-10 flex flex-col items-center text-center mt-1">
                                     {/* Avatar */}
-                                    <div className="w-16 h-16 rounded-full p-1 bg-white shadow-md mb-3 relative">
+                                    <div className="w-16 h-16 rounded-full p-1 bg-white shadow-md mb-3 relative mt-6">
                                         <div className="w-full h-full rounded-full overflow-hidden bg-slate-100 flex items-center justify-center text-slate-400">
                                             {user.img_url ? (
                                                 <img
@@ -502,6 +639,8 @@ export function Usuarios() {
                                             )}
                                         </div>
                                     </div>
+
+                                    {/* Removed Old Relative Status Badge */}
 
                                     <h3 className="text-base font-bold text-slate-800 mb-0.5">{user.username}</h3>
                                     <p className="text-xs text-slate-500 mb-3">{user.email}</p>
@@ -564,7 +703,17 @@ export function Usuarios() {
             <EditPointsModal
                 isOpen={isEditPointsModalOpen}
                 onClose={() => setIsEditPointsModalOpen(false)}
-                users={users.map(u => ({ id: u.id, user_id: u.user_id, username: u.username, img_url: u.img_url, role_id: u.role?.id || u.role_id }))}
+                users={users}
+            />
+
+            {/* Justification Details Modal */}
+            <JustificationDetailsModal
+                isOpen={isJustificationModalOpen}
+                onClose={() => setIsJustificationModalOpen(false)}
+                justification={selectedJustification}
+                applicantName={justificationUser}
+                onApprove={handleApproveJustification}
+                onReject={handleRejectJustification}
             />
 
             {/* CREATE USER MODAL */}
