@@ -164,7 +164,8 @@ export const PointReportModal: React.FC<PointReportModalProps> = ({ isOpen, onCl
                 }
 
                 const daysWorkedCount = validDays.size;
-                const avg = daysWorkedCount > 0 ? totalMin / daysWorkedCount : 0;
+                // Average based on Business Days (same as Target)
+                const avg = businessDaysCount > 0 ? totalMin / businessDaysCount : 0;
 
                 // Determine Target based on Role
                 // ID 2 = Estagiário (Intern) -> 6 hours (360 min)
@@ -398,7 +399,7 @@ export const PointReportModal: React.FC<PointReportModalProps> = ({ isOpen, onCl
                                         <div className="space-y-1">
                                             <p className="text-xs uppercase tracking-wider text-slate-500 font-bold">Média Diária</p>
                                             <p className="text-xl font-bold text-slate-700">{formatMinutes(report.avgMinutesPerDay)}</p>
-                                            <p className="text-[10px] text-slate-400">Baseado em {report.daysWorked} dias trabalhados</p>
+                                            <p className="text-[10px] text-slate-400">Baseado em {report.businessDays} dias úteis</p>
                                         </div>
                                         <div className="space-y-1 opacity-75">
                                             <p className="text-xs uppercase tracking-wider text-slate-500 font-bold">Meta do Mês (Período)</p>

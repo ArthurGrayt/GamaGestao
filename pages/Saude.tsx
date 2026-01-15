@@ -4,8 +4,9 @@ import { getUTCStart, getUTCEnd } from '../utils/dateUtils';
 import { FilterContext } from '../layouts/MainLayout';
 import { KPICard } from '../components/KPICard';
 import { supabase } from '../services/supabase';
-import { UserCheck, Clock, Activity, X, Search } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { UserCheck, Clock, Activity, X, Search, Zap } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { differenceInDays, parseISO, getHours, getDate } from 'date-fns';
 
 export const Saude: React.FC = () => {
   const filter = useContext(FilterContext);
@@ -17,6 +18,8 @@ export const Saude: React.FC = () => {
     rate: { current: 0, prev: 0 }
   });
   const [chartData, setChartData] = useState<any[]>([]);
+  const [peakData, setPeakData] = useState<any[]>([]);
+  const [peakType, setPeakType] = useState<'days' | 'hours'>('days');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -89,6 +92,60 @@ export const Saude: React.FC = () => {
           { name: 'Pendentes', Atual: c.pending, Anterior: p.pending },
           { name: 'Total', Atual: c.total, Anterior: p.total },
         ]);
+
+        // Peak Analysis Logic
+        const diffDays = differenceInDays(filter.endDate, filter.startDate);
+        const isDayView = diffDays <= 1;
+        setPeakType(isDayView ? 'hours' : 'days');
+
+        const peakMap = new Map<string, number>();
+
+        curr.forEach((item: any) => {
+          // Use data_atendimento for peak analysis
+          if (!item.data_atendimento) return;
+
+          // Only count attended patients for "Peak" analysis
+          if (item.compareceu !== true) return;
+
+          let key = '';
+
+          // Logic for Hours (Day View) vs Days (Month View)
+          if (isDayView) {
+            // For "Peak Hours", preferred source is 'chegou_em' (actual arrival), fallback to 'data_atendimento'
+            const timeSource = item.chegou_em || item.data_atendimento;
+
+            if (!timeSource) return;
+
+            let h = 0;
+            // Handle "HH:mm:ss" string format (common in Postgres time types)
+            if (typeof timeSource === 'string' && timeSource.includes(':') && timeSource.length === 8) {
+              h = parseInt(timeSource.split(':')[0], 10);
+            } else {
+              // Handle ISO Date
+              const date = parseISO(timeSource);
+              h = getHours(date);
+            }
+
+            const endH = (h + 1) % 24;
+            key = `${h.toString().padStart(2, '0')}:00 às ${endH.toString().padStart(2, '0')}:00`;
+          } else {
+            const date = parseISO(item.data_atendimento);
+            key = format(date, 'dd/MM');
+          }
+
+          peakMap.set(key, (peakMap.get(key) || 0) + 1);
+        });
+
+        const sortedPeak = Array.from(peakMap.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value)
+          .slice(0, isDayView ? 4 : 7); // Top 4 for Hours, Top 7 for Days
+
+        // Sort back by label for timeline consistency if needed, or by value for "Peak". 
+        // User asked for "Peak Days", usually implying ranking. "Most appointments". 
+        // Keeping them sorted by value (descending) is best for "Peak" identification.
+
+        setPeakData(sortedPeak);
 
       } catch (error) {
         console.error(error);
@@ -175,28 +232,82 @@ export const Saude: React.FC = () => {
         />
       </div>
 
-      <div className="bg-white/60 backdrop-blur-xl p-8 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50">
-        <h3 className="text-lg font-bold text-slate-800 mb-6">Volume de Atendimentos</h3>
-        <div className="h-96 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} barSize={40}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(0,0,0,0.05)" />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
-              <Tooltip
-                cursor={{ fill: 'rgba(0,0,0,0.02)' }}
-                contentStyle={{
-                  backgroundColor: 'rgba(255,255,255,0.8)',
-                  backdropFilter: 'blur(8px)',
-                  borderRadius: '16px',
-                  border: '1px solid rgba(255,255,255,0.5)',
-                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                }}
-              />
-              <Bar dataKey="Atual" fill="#10b981" radius={[8, 8, 8, 8]} />
-              <Bar dataKey="Anterior" fill="#e2e8f0" radius={[8, 8, 8, 8]} />
-            </BarChart>
-          </ResponsiveContainer>
+      <div className="flex flex-col lg:flex-row gap-6">
+        {/* Volume Chart - 55% */}
+        <div className="w-full lg:w-[55%] bg-white/60 backdrop-blur-xl p-8 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50">
+          <h3 className="text-lg font-bold text-slate-800 mb-6">Volume de Atendimentos</h3>
+          <div className="h-80 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} barSize={40}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(0,0,0,0.05)" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                <Tooltip
+                  cursor={{ fill: 'rgba(0,0,0,0.02)' }}
+                  contentStyle={{
+                    backgroundColor: 'rgba(255,255,255,0.8)',
+                    backdropFilter: 'blur(8px)',
+                    borderRadius: '16px',
+                    border: '1px solid rgba(255,255,255,0.5)',
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                  }}
+                />
+                <Bar dataKey="Atual" fill="#10b981" radius={[8, 8, 8, 8]} />
+                <Bar dataKey="Anterior" fill="#e2e8f0" radius={[8, 8, 8, 8]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Peak Analysis - 45% */}
+        <div className="w-full lg:w-[45%] bg-white/60 backdrop-blur-xl p-8 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50">
+          <div className="flex items-center gap-2 mb-6">
+            <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
+              <Zap size={20} />
+            </div>
+            <h3 className="text-lg font-bold text-slate-800">
+              {peakType === 'days' ? 'Dias de Maior Movimento' : 'Horários de Pico'}
+            </h3>
+          </div>
+
+          <div className="h-80 w-full">
+            {peakData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={peakData} layout="vertical" margin={{ left: 0, right: 30, top: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="rgba(0,0,0,0.05)" />
+                  <XAxis type="number" hide />
+                  <YAxis
+                    dataKey="name"
+                    type="category"
+                    axisLine={false}
+                    tickLine={false}
+                    width={110}
+                    tick={{ fill: '#64748b', fontSize: 12, fontWeight: 500 }}
+                  />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(0,0,0,0.02)' }}
+                    contentStyle={{
+                      backgroundColor: 'rgba(255,255,255,0.8)',
+                      backdropFilter: 'blur(8px)',
+                      borderRadius: '16px',
+                      border: '1px solid rgba(255,255,255,0.5)',
+                      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                    }}
+                  />
+                  <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={24}>
+                    {peakData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={index === 0 ? '#f59e0b' : '#cbd5e1'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                <Activity size={48} className="mb-4 opacity-20" />
+                <p>Sem dados suficientes</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
