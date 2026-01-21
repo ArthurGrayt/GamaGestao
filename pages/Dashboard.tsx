@@ -4,8 +4,8 @@ import { getUTCStart, getUTCEnd } from '../utils/dateUtils';
 import { FilterContext } from '../layouts/MainLayout';
 import { KPICard } from '../components/KPICard';
 import { supabase } from '../services/supabase';
-import { Users, DollarSign, CheckCircle, Stethoscope } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { X, Users, DollarSign, CheckCircle, Stethoscope, Building2, ArrowLeft, User } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 export const Dashboard: React.FC = () => {
   const filter = useContext(FilterContext);
@@ -18,6 +18,70 @@ export const Dashboard: React.FC = () => {
   });
 
   const [chartData, setChartData] = useState<any[]>([]);
+
+  const [showModal, setShowModal] = useState(false);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [breakdownData, setBreakdownData] = useState<{ name: string, count: number, percent: number }[]>([]);
+  const [rawAppointments, setRawAppointments] = useState<any[]>([]);
+  const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
+
+  // Function to calculate breakdown of companies
+  const handleShowBreakdown = async () => {
+    setShowModal(true);
+    setModalLoading(true);
+    setSelectedUnit(null); // Reset drill-down
+    try {
+      const startDate = getUTCStart(filter.startDate);
+      const endDate = getUTCEnd(filter.endDate);
+
+      // Fetch appointments with unit info (via employee)
+      const { data, error } = await supabase
+        .from('agendamentos')
+        .select(`
+          id,
+          colaborador:colaborador_id (
+            nome,
+            unidades ( nome_unidade )
+          )
+        `)
+        .gte('data_atendimento', startDate)
+        .lt('data_atendimento', endDate);
+
+      if (error) {
+        console.error('Error fetching breakdown:', error);
+        return;
+      }
+
+      if (data) {
+        setRawAppointments(data); // Store raw data for drill-down
+
+        const total = data.length;
+        const countMap: Record<string, number> = {};
+
+        data.forEach((item: any) => {
+          // Extract unit name safely
+          const unitName = item.colaborador?.unidades?.nome_unidade || 'Sem Unidade';
+          countMap[unitName] = (countMap[unitName] || 0) + 1;
+        });
+
+        // Convert to array and sort
+        const result = Object.entries(countMap)
+          .map(([name, count]) => ({
+            name,
+            count,
+            percent: total > 0 ? (count / total) * 100 : 0
+          }))
+          .sort((a, b) => b.count - a.count);
+
+        setBreakdownData(result);
+      }
+
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setModalLoading(false);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -143,7 +207,113 @@ export const Dashboard: React.FC = () => {
           prevValue={stats.appointments.prev}
           isLoading={loading}
           icon={<Stethoscope size={24} />}
+          onClick={handleShowBreakdown}
         />
+        {/* Breakdown Modal */}
+        {showModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh]">
+              <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-white">
+                <div className="flex items-center gap-3">
+                  {selectedUnit && (
+                    <button
+                      onClick={() => setSelectedUnit(null)}
+                      className="p-1.5 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"
+                    >
+                      <ArrowLeft size={20} />
+                    </button>
+                  )}
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800">
+                      {selectedUnit ? selectedUnit : "Taxa por Empresa"}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {selectedUnit ? "Colaboradores atendidos no período" : "Distribuição dos atendimentos no período"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-red-500 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
+                {modalLoading ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                    <div className="w-8 h-8 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mb-3"></div>
+                    <p className="text-sm">Calculando estatísticas...</p>
+                  </div>
+                ) : selectedUnit ? (
+                  // Drill-Down View
+                  <div className="space-y-3">
+                    {(() => {
+                      // Filter and deduplicate collaborators for the selected unit
+                      const collaborators = rawAppointments
+                        .filter(item => {
+                          const uName = item.colaborador?.unidades?.nome_unidade || 'Sem Unidade';
+                          return uName === selectedUnit;
+                        })
+                        .map(item => item.colaborador?.nome || 'Nome Indisponível')
+                        .sort();
+
+                      const uniqueCollaborators = [...new Set(collaborators)];
+
+                      if (uniqueCollaborators.length === 0) {
+                        return (
+                          <div className="text-center py-8 text-slate-400">
+                            <User size={32} className="mx-auto mb-2 opacity-20" />
+                            <p>Nenhum colaborador encontrado.</p>
+                          </div>
+                        );
+                      }
+
+                      return uniqueCollaborators.map((name, idx) => (
+                        <div key={idx} className="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
+                          <div className="bg-blue-50 p-2 rounded-full text-blue-500">
+                            <User size={16} />
+                          </div>
+                          <span className="font-medium text-slate-700">{name}</span>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                ) : breakdownData.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400">
+                    <Building2 size={40} className="mx-auto mb-2 opacity-20" />
+                    <p>Nenhum dado encontrado para este período.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {breakdownData.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm cursor-pointer hover:border-blue-300 hover:shadow-md transition-all group"
+                        onClick={() => setSelectedUnit(item.name)}
+                      >
+                        <div className="flex justify-between items-end mb-2">
+                          <span className="font-bold text-slate-700 group-hover:text-blue-600 transition-colors">{item.name}</span>
+                          <div className="text-right">
+                            <span className="text-lg font-bold text-blue-600">{item.percent.toFixed(1)}%</span>
+                            <span className="text-xs text-slate-400 ml-1">({item.count})</span>
+                          </div>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="bg-blue-500 h-full rounded-full transition-all duration-500 group-hover:bg-blue-600"
+                            style={{ width: `${item.percent}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         <KPICard
           title="Tarefas Concluídas"
           value={stats.tasks.current}

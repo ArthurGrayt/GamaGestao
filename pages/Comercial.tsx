@@ -14,7 +14,7 @@ export const Comercial: React.FC = () => {
   const filter = useContext(FilterContext);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({
-    totalAllTime: { current: 0, prev: 0 },
+
     totalPeriod: { current: 0, prev: 0 },
     backlog: { current: 0, prev: 0 }, // Cumulative Pending
     approved: { current: 0, prev: 0 }, // Period Approved
@@ -198,7 +198,7 @@ export const Comercial: React.FC = () => {
 
         // --- Current Period & Statuses ---
         const [
-          allTimeCurrent,
+
           periodTotal,
           periodPending,
           periodApproved,
@@ -206,34 +206,34 @@ export const Comercial: React.FC = () => {
           backlogCurrent,
           periodValue // Total Value Current
         ] = await Promise.all([
-          getCount(null, endDate), // Total All Time
+
           getCount(startDate, endDate), // Total In Period
           getCount(startDate, endDate, 'PENDING'),
           getCount(startDate, endDate, 'APPROVED'),
           getCount(startDate, endDate, 'REJECTED'),
-          getCount(null, endDate, 'PENDING'),
+          getCount(startDate, endDate, 'PENDING'),
           getTotalApprovedValue(startDate, endDate)
         ]);
 
         // --- Previous Period ---
         const [
-          allTimePrev,
+
           prevPeriodTotal,
           prevApproved,
           prevRejected,
           backlogPrev,
           prevValue // Total Value Previous
         ] = await Promise.all([
-          getCount(null, prevEnd),
+
           getCount(prevStart, prevEnd),
           getCount(prevStart, prevEnd, 'APPROVED'),
           getCount(prevStart, prevEnd, 'REJECTED'),
-          getCount(null, prevEnd, 'PENDING'),
+          getCount(prevStart, prevEnd, 'PENDING'),
           getTotalApprovedValue(prevStart, prevEnd)
         ]);
 
         setData({
-          totalAllTime: { current: allTimeCurrent, prev: allTimePrev },
+
           totalPeriod: { current: periodTotal, prev: prevPeriodTotal },
           backlog: { current: backlogCurrent, prev: backlogPrev },
           approved: { current: periodApproved, prev: prevApproved },
@@ -363,18 +363,11 @@ export const Comercial: React.FC = () => {
 
           {/* KPI Section */}
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 shrink-0">
-            {/* 1. Total Geral (All Time) */}
-            <KPICard
-              title="Total (Geral)"
-              value={data.totalAllTime.current}
-              prevValue={data.totalAllTime.prev}
-              isLoading={loading}
-              icon={<Layers size={20} />}
-            />
+
 
             {/* 2. Total Periodo */}
             <KPICard
-              title="Feitas no Período"
+              title="Propostas Totais"
               value={data.totalPeriod.current}
               prevValue={data.totalPeriod.prev}
               isLoading={loading}
@@ -383,7 +376,7 @@ export const Comercial: React.FC = () => {
 
             {/* 3. Backlog (Cumulative Pending) */}
             <KPICard
-              title="Backlog (Pendentes)"
+              title="Propostas Pendentes"
               value={data.backlog.current}
               prevValue={data.backlog.prev}
               isLoading={loading}

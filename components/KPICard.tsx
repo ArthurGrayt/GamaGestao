@@ -11,6 +11,7 @@ interface KPICardProps {
   icon?: React.ReactNode;
   score?: number;
   onClick?: () => void;
+  extraInfo?: string;
 }
 
 export const KPICard: React.FC<KPICardProps> = ({
@@ -21,7 +22,8 @@ export const KPICard: React.FC<KPICardProps> = ({
   isCurrency,
   icon,
   score,
-  onClick
+  onClick,
+  extraInfo
 }) => {
   if (isLoading) {
     return (
@@ -77,6 +79,14 @@ export const KPICard: React.FC<KPICardProps> = ({
           </div>
         )}
       </div>
+
+      {extraInfo && (
+        <div className="mt-1.5 flex items-center justify-between border-t border-slate-100/50 pt-1.5 overflow-hidden">
+          <span className="text-[9px] font-medium text-slate-400 truncate tracking-wide whitespace-nowrap">
+            {extraInfo}
+          </span>
+        </div>
+      )}
     </div>
   );
 };
