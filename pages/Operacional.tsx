@@ -61,6 +61,8 @@ export const Operacional: React.FC = () => {
   });
 
   const [chartData, setChartData] = useState<any[]>([]);
+  const [modalStatusOptions, setModalStatusOptions] = useState<string[]>([]);
+
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -91,6 +93,18 @@ export const Operacional: React.FC = () => {
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // 1.5 Fetch ALL Status Options for Modal Filter
+  useEffect(() => {
+    const fetchStatuses = async () => {
+      const { data } = await supabase.from('colunaskanban').select('collumname');
+      if (data) {
+        const unique = Array.from(new Set(data.map(d => d.collumname?.trim()).filter(Boolean)));
+        setModalStatusOptions(unique);
+      }
+    };
+    fetchStatuses();
   }, []);
 
   // 2. Helper: Auto-switch Sector when User selected
@@ -411,6 +425,7 @@ export const Operacional: React.FC = () => {
         onClose={() => setIsModalOpen(false)}
         title={modalTitle}
         tasks={modalTasks}
+        statusOptions={modalStatusOptions}
       />
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 border-b border-slate-200/50 pb-4 shrink-0">
         <div>

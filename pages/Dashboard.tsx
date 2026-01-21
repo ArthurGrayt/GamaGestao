@@ -29,19 +29,15 @@ export const Dashboard: React.FC = () => {
         const prevEnd = getUTCEnd(filter.prevEndDate);
 
         // Define Queries
-        const qCurrRev = supabase.from('financeiro_transacoes')
-          .select('valor_original')
-          .eq('tipo_transacao', 'Receber')
-          .neq('status', 'Cancelado')
-          .gte('data_emissao', startDate)
-          .lt('data_emissao', endDate);
+        const qCurrRev = supabase.from('financeiro_receitas')
+          .select('valor_total')
+          .gte('data_projetada', startDate)
+          .lt('data_projetada', endDate);
 
-        const qPrevRev = supabase.from('financeiro_transacoes')
-          .select('valor_original')
-          .eq('tipo_transacao', 'Receber')
-          .neq('status', 'Cancelado')
-          .gte('data_emissao', prevStart)
-          .lt('data_emissao', prevEnd);
+        const qPrevRev = supabase.from('financeiro_receitas')
+          .select('valor_total')
+          .gte('data_projetada', prevStart)
+          .lt('data_projetada', prevEnd);
 
         const qCurrCli = supabase.from('clientes')
           .select('*', { count: 'exact', head: true })
@@ -96,8 +92,8 @@ export const Dashboard: React.FC = () => {
           qPrevTask
         ]);
 
-        const totalCurrRev = currRev?.reduce((acc, curr) => acc + (Number(curr.valor_original) || 0), 0) || 0;
-        const totalPrevRev = prevRev?.reduce((acc, curr) => acc + (Number(curr.valor_original) || 0), 0) || 0;
+        const totalCurrRev = currRev?.reduce((acc, curr) => acc + (Number(curr.valor_total) || 0), 0) || 0;
+        const totalPrevRev = prevRev?.reduce((acc, curr) => acc + (Number(curr.valor_total) || 0), 0) || 0;
 
         setStats({
           revenue: { current: totalCurrRev, prev: totalPrevRev },

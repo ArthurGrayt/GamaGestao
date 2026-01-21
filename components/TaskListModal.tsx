@@ -1,6 +1,5 @@
-
-import React from 'react';
-import { X, Trophy, Calendar } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { X, Trophy, Calendar, Filter } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -17,9 +16,22 @@ interface TaskListModalProps {
     onClose: () => void;
     title: string;
     tasks: Task[];
+    statusOptions?: string[];
 }
 
-export const TaskListModal: React.FC<TaskListModalProps> = ({ isOpen, onClose, title, tasks }) => {
+export const TaskListModal: React.FC<TaskListModalProps> = ({ isOpen, onClose, title, tasks, statusOptions = [] }) => {
+    const [selectedStatus, setSelectedStatus] = useState<string>('all');
+
+    // Reset filter when modal opens/title changes
+    React.useEffect(() => {
+        if (isOpen) setSelectedStatus('all');
+    }, [isOpen, title]);
+
+    const filteredTasks = useMemo(() => {
+        if (selectedStatus === 'all') return tasks;
+        return tasks.filter(t => t.status?.toLowerCase().trim() === selectedStatus.toLowerCase().trim());
+    }, [tasks, selectedStatus]);
+
     if (!isOpen) return null;
 
     return (
@@ -31,26 +43,47 @@ export const TaskListModal: React.FC<TaskListModalProps> = ({ isOpen, onClose, t
                     <div>
                         <h3 className="text-xl font-bold text-slate-800 tracking-tight">{title}</h3>
                         <p className="text-sm text-slate-500 mt-1">
-                            Top Scores • {tasks.length} tarefas encontradas
+                            Top Scores • {filteredTasks.length} tarefas filtradas (de {tasks.length})
                         </p>
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-                    >
-                        <X size={20} />
-                    </button>
+
+                    <div className="flex items-center gap-3">
+                        {statusOptions.length > 0 && (
+                            <div className="relative group">
+                                <div className="flex items-center gap-2 bg-slate-100/50 hover:bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 transition-colors">
+                                    <Filter size={14} className="text-slate-400" />
+                                    <select
+                                        value={selectedStatus}
+                                        onChange={(e) => setSelectedStatus(e.target.value)}
+                                        className="bg-transparent text-sm text-slate-600 outline-none cursor-pointer appearance-none pr-4"
+                                    >
+                                        <option value="all">Todos os Status</option>
+                                        {statusOptions.map(opt => (
+                                            <option key={opt} value={opt}>{opt}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                        )}
+
+                        <button
+                            onClick={onClose}
+                            className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                            <X size={20} />
+                        </button>
+                    </div>
                 </div>
 
                 {/* List */}
                 <div className="overflow-y-auto p-4 custom-scrollbar bg-slate-50/50 flex-1">
-                    {tasks.length === 0 ? (
+                    {filteredTasks.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-40 text-slate-400">
                             <p>Nenhuma tarefa encontrada.</p>
                         </div>
                     ) : (
                         <div className="space-y-3">
-                            {tasks.map((task, idx) => (
+                            {filteredTasks.map((task, idx) => (
                                 <div
                                     key={idx}
                                     onClick={() => window.open('https://gama-talk.vercel.app/', '_blank')}
