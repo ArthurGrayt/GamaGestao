@@ -2360,17 +2360,33 @@ export const Formularios: React.FC = () => {
                                         else if (lowerRisk === 'alto') riskColor = 'text-red-600 font-bold';
                                         else {
                                             // Fallback Logic if text is missing or unknown
-                                            if (finalAvg <= 1) { riskLabel = 'baixo'; riskColor = 'text-emerald-600 font-bold'; }
+                                            if (finalAvg <= 1) { riskLabel = 'baixo'; riskColor = 'text-green-600 font-bold'; }
                                             else if (finalAvg <= 2) { riskLabel = 'médio'; riskColor = 'text-cyan-600 font-bold'; }
                                             else if (finalAvg <= 3) { riskLabel = 'moderado'; riskColor = 'text-yellow-600 font-bold'; }
                                             else { riskLabel = 'alto'; riskColor = 'text-red-600 font-bold'; }
+
+                                            // Override color if 'is_positive' logic applies (e.g. higher score = good)
+                                            // Note: ideally we should have is_positive available here.
+                                            // Let's check hseDimensions for is_positive
+                                            const dimMeta = hseDimensions.find(d => d.id === dimId);
+                                            const isPositive = dimMeta?.is_positive;
+
+                                            if (isPositive) {
+                                                if (finalAvg >= 3) { riskLabel = 'baixo'; riskColor = 'text-green-600 font-bold'; }
+                                                else if (finalAvg >= 2) { riskLabel = 'médio'; riskColor = 'text-cyan-600 font-bold'; }
+                                                else if (finalAvg >= 1) { riskLabel = 'moderado'; riskColor = 'text-yellow-600 font-bold'; }
+                                                else { riskLabel = 'alto'; riskColor = 'text-red-600 font-bold'; }
+                                            }
                                         }
+
+                                        // Helper to clean and format label
+                                        const cleanRiskLabel = (riskLabel.replace(/risco de exposição/gi, '').trim());
 
                                         return (
                                             <React.Fragment key={dimId || index}>
                                                 <div className="py-1 text-slate-800">{dimName}</div>
                                                 <div className="py-1 text-slate-800">
-                                                    <span className={riskColor}>{riskLabel}</span> risco de exposição ({finalAvg.toFixed(2)})
+                                                    <span className={`${riskColor}`}>{cleanRiskLabel} risco de exposição ({finalAvg.toFixed(2)})</span>
                                                 </div>
                                             </React.Fragment>
                                         );
@@ -2845,8 +2861,8 @@ export const Formularios: React.FC = () => {
                                             <div>
                                                 <div className="flex items-center gap-3 mb-1">
                                                     <h3 className="text-lg font-bold text-slate-800">Dimensão {dimName}</h3>
-                                                    <span className={`text-[11px] px-2 py-0.5 rounded-full border font-bold uppercase tracking-wide ${riskColor}`}>
-                                                        {riskLabel} risco de exposição ({finalAvg.toFixed(2)})
+                                                    <span className={`text-[11px] px-2 py-0.5 rounded-full border font-bold tracking-wide ${riskColor}`}>
+                                                        {riskLabel.replace(/risco de exposição/gi, '').trim()} risco de exposição ({finalAvg.toFixed(2)})
                                                     </span>
                                                 </div>
                                                 <p className={`text-xs font-semibold ${isPositive ? 'text-blue-600' : 'text-orange-600'}`}>
