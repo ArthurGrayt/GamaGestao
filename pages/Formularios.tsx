@@ -1099,6 +1099,10 @@ export const Formularios: React.FC = () => {
     const [technicalCrp, setTechnicalCrp] = useState<string>('');
     const [expandedInterpretativeDims, setExpandedInterpretativeDims] = useState<Set<number>>(new Set());
 
+    // Action Plan Search & Filter
+    const [actionPlanSearch, setActionPlanSearch] = useState('');
+    const [actionPlanFilterDimension, setActionPlanFilterDimension] = useState<number | 'all'>('all');
+
     // Overview Search State
     const [overviewSearch, setOverviewSearch] = useState('');
 
@@ -2274,7 +2278,7 @@ export const Formularios: React.FC = () => {
 
                                 <div className="grid grid-cols-2 gap-8">
                                     <div>
-                                        <p className="font-bold mb-2 text-sm">Classificação por média (Média Alta = Risco):</p>
+                                        <p className="font-bold mb-2 text-sm">Quanto <span className="font-black italic">maior</span> a média <span className="font-black italic">maior</span> o risco:</p>
                                         <ul className="list-none space-y-1 pl-0 font-medium text-xs">
                                             <li className="flex items-center gap-2">
                                                 - 0 a 1: <span className="text-emerald-600 font-bold">baixo</span>
@@ -2291,7 +2295,7 @@ export const Formularios: React.FC = () => {
                                         </ul>
                                     </div>
                                     <div>
-                                        <p className="font-bold mb-2 text-sm">Classificação por média (Média Baixa = Risco):</p>
+                                        <p className="font-bold mb-2 text-sm">Quanto <span className="font-black italic">menor</span> a média <span className="font-black italic">maior</span> o risco:</p>
                                         <ul className="list-none space-y-1 pl-0 font-medium text-xs">
                                             <li className="flex items-center gap-2">
                                                 - 0 a 1: <span className="text-red-600 font-bold">alto</span>
@@ -2340,7 +2344,7 @@ export const Formularios: React.FC = () => {
                                                         return (
                                                             <li key={idx} className="text-slate-800 break-inside-avoid" style={{ pageBreakInside: 'avoid', display: 'block', marginBottom: '8px' }}>
                                                                 <span>
-                                                                    - {qNum}. {item.texto_pergunta}: <span className="font-semibold">{item.texto_risco_completo || 'N/A'}</span> ({Number(item.media_valor).toFixed(2)})
+                                                                    - {qNum}. {item.texto_pergunta}: <span className="font-semibold">{(item.texto_risco_completo || 'N/A').replace(/fragilidade/gi, 'exposição')}</span> ({Number(item.media_valor).toFixed(2)})
                                                                 </span>
                                                             </li>
                                                         );
@@ -2384,7 +2388,7 @@ export const Formularios: React.FC = () => {
                                         const finalRiskText = analysisItem ? analysisItem.texto_risco_dimensao : '';
 
                                         // Determine Risk Label & Color
-                                        let riskLabel = finalRiskText || '';
+                                        let riskLabel = (finalRiskText || '').replace(/fragilidade/gi, 'exposição');
                                         let riskColor = '';
 
                                         // Fallback calculation if View is empty (or for coloring logic)
@@ -2435,7 +2439,7 @@ export const Formularios: React.FC = () => {
                                 <h2 className="text-lg font-bold text-blue-800 mb-2" style={{ breakAfter: 'avoid', pageBreakAfter: 'avoid' }}>5. Análise Interpretativa</h2>
                                 <div className="text-slate-800 text-sm leading-relaxed text-justify">
                                     {interpretativeText ? (
-                                        interpretativeText.split('\n').map((line, idx) => {
+                                        interpretativeText.replace(/fragilidade/gi, 'exposição').split('\n').map((line, idx) => {
                                             // Strip HTML bold tags if present
                                             const cleanText = line.replace(/<\/?b>/gi, '').trim();
                                             if (!cleanText) return <br key={idx} />;
@@ -2483,7 +2487,7 @@ export const Formularios: React.FC = () => {
                                 <h2 className="text-lg font-bold text-blue-800 mb-2" style={{ breakAfter: 'avoid' }}>6. Recomendações de Plano de Ação</h2>
                                 <div className="text-slate-800 text-sm leading-relaxed text-justify">
                                     {actionPlanText ? (
-                                        actionPlanText.split('\n').map((line, idx) => {
+                                        actionPlanText.replace(/fragilidade/gi, 'exposição').split('\n').map((line, idx) => {
                                             // Handle HTML bold tags <b>text</b>
                                             // We won't strip them anymore, we'll parse them.
                                             const rawLine = line.trim();
@@ -2559,7 +2563,7 @@ export const Formularios: React.FC = () => {
                                 <h2 className="text-lg font-bold text-blue-800 mb-2" style={{ breakAfter: 'avoid' }}>7. Conclusão</h2>
                                 <div className="text-slate-800 text-sm leading-relaxed text-justify">
                                     {conclusionText ? (
-                                        conclusionText.split('\n').map((line, idx) => {
+                                        conclusionText.replace(/fragilidade/gi, 'exposição').split('\n').map((line, idx) => {
                                             // Strip HTML bold tags if present
                                             const cleanText = line.replace(/<\/?b>/gi, '').trim();
                                             if (!cleanText) return <br key={idx} />;
@@ -3444,22 +3448,69 @@ export const Formularios: React.FC = () => {
             return (
                 <div className="p-6 bg-slate-50 min-h-[500px] animate-in fade-in duration-300">
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-6">
-                        <div className="flex items-start gap-3">
-                            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                                <Info size={20} />
+                        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-4">
+                            <div className="flex items-start gap-3">
+                                <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                                    <Info size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-slate-800">Editor de Planos de Ação</h3>
+                                    <p className="text-slate-500 mt-1 text-sm">
+                                        Edite aqui os títulos e ações sugeridas para cada pergunta. Estas informações serão exibidas no relatório na seção "Recomendações de Plano de Ação".
+                                        As alterações são salvas automaticamente ao sair do campo.
+                                    </p>
+                                </div>
                             </div>
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-800">Editor de Planos de Ação</h3>
-                                <p className="text-slate-500 mt-1">
-                                    Edite aqui os títulos e ações sugeridas para cada pergunta. Estas informações serão exibidas no relatório na seção "Recomendações de Plano de Ação".
-                                    As alterações são salvas automaticamente ao sair do campo.
-                                </p>
+                        </div>
+
+                        {/* Search and Filter Controls */}
+                        <div className="flex flex-col md:flex-row gap-4 pt-4 border-t border-slate-100">
+                            <div className="flex-1">
+                                <Input
+                                    icon={Search}
+                                    placeholder="Buscar por pergunta, título, ação..."
+                                    value={actionPlanSearch}
+                                    onChange={(e: any) => setActionPlanSearch(e.target.value)}
+                                    className="w-full"
+                                />
+                            </div>
+                            <div className="w-full md:w-64">
+                                <select
+                                    value={actionPlanFilterDimension}
+                                    onChange={(e) => setActionPlanFilterDimension(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                                    className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                >
+                                    <option value="all">Todas as Dimensões</option>
+                                    {hseDimensions.map(d => (
+                                        <option key={d.id} value={d.id}>{d.name}</option>
+                                    ))}
+                                    <option value={0}>Sem Dimensão</option>
+                                </select>
                             </div>
                         </div>
                     </div>
 
                     <div className="space-y-4">
-                        {questions.map((q, idx) => (
+                        {questions.filter(q => {
+                            // Filter by Dimension
+                            if (actionPlanFilterDimension !== 'all') {
+                                if (actionPlanFilterDimension === 0 && q.hse_dimension_id) return false;
+                                if (actionPlanFilterDimension !== 0 && q.hse_dimension_id !== actionPlanFilterDimension) return false;
+                            }
+
+                            // Filter by Search Text
+                            if (actionPlanSearch.trim()) {
+                                const term = actionPlanSearch.toLowerCase();
+                                const inLabel = q.label?.toLowerCase().includes(term);
+                                const inTitle = q.titulo_relatorio?.toLowerCase().includes(term);
+                                const inAction = q.plano_acao_item?.toLowerCase().includes(term);
+                                const inDim = q.hse_dimension_id ? hseDimensions.find(d => d.id === q.hse_dimension_id)?.name.toLowerCase().includes(term) : false;
+
+                                return inLabel || inTitle || inAction || inDim;
+                            }
+
+                            return true;
+                        }).map((q, idx) => (
                             <div key={q.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-blue-300 transition-colors">
                                 <div className="flex items-start justify-between mb-4">
                                     <div className="flex gap-3">
