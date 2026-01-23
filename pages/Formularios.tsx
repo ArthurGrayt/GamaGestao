@@ -2272,22 +2272,41 @@ export const Formularios: React.FC = () => {
                                     </ul>
                                 </div>
 
-                                <div>
-                                    <p className="font-bold mb-2">Classificação por média:</p>
-                                    <ul className="list-none space-y-1 pl-0 font-medium">
-                                        <li className="flex items-center gap-2">
-                                            - 0 a 1: <span className="text-emerald-600 font-bold">baixo</span>
-                                        </li>
-                                        <li className="flex items-center gap-2">
-                                            - &gt;1 a 2: <span className="text-cyan-600 font-bold">médio</span>
-                                        </li>
-                                        <li className="flex items-center gap-2">
-                                            - &gt;2 a 3: <span className="text-yellow-600 font-bold">moderado</span>
-                                        </li>
-                                        <li className="flex items-center gap-2">
-                                            - &gt;3 a 4: <span className="text-red-600 font-bold">alto</span>
-                                        </li>
-                                    </ul>
+                                <div className="grid grid-cols-2 gap-8">
+                                    <div>
+                                        <p className="font-bold mb-2 text-sm">Classificação por média (Média Alta = Risco):</p>
+                                        <ul className="list-none space-y-1 pl-0 font-medium text-xs">
+                                            <li className="flex items-center gap-2">
+                                                - 0 a 1: <span className="text-emerald-600 font-bold">baixo</span>
+                                            </li>
+                                            <li className="flex items-center gap-2">
+                                                - &gt;1 a 2: <span className="text-cyan-600 font-bold">médio</span>
+                                            </li>
+                                            <li className="flex items-center gap-2">
+                                                - &gt;2 a 3: <span className="text-yellow-600 font-bold">moderado</span>
+                                            </li>
+                                            <li className="flex items-center gap-2">
+                                                - &gt;3 a 4: <span className="text-red-600 font-bold">alto</span>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                    <div>
+                                        <p className="font-bold mb-2 text-sm">Classificação por média (Média Baixa = Risco):</p>
+                                        <ul className="list-none space-y-1 pl-0 font-medium text-xs">
+                                            <li className="flex items-center gap-2">
+                                                - 0 a 1: <span className="text-red-600 font-bold">alto</span>
+                                            </li>
+                                            <li className="flex items-center gap-2">
+                                                - &gt;1 a 2: <span className="text-yellow-600 font-bold">moderado</span>
+                                            </li>
+                                            <li className="flex items-center gap-2">
+                                                - &gt;2 a 3: <span className="text-cyan-600 font-bold">médio</span>
+                                            </li>
+                                            <li className="flex items-center gap-2">
+                                                - &gt;3 a 4: <span className="text-emerald-600 font-bold">baixo</span>
+                                            </li>
+                                        </ul>
+                                    </div>
                                 </div>
                             </div>
 
