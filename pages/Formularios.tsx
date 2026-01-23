@@ -1143,7 +1143,7 @@ export const Formularios: React.FC = () => {
                     const meta: Record<string, { nome: string; setor: string; cargo: string }> = {};
                     usersData.forEach((u: any) => {
                         // Handle nested cargo object if join works
-                        const cargoName = u.cargos?.nome || (typeof u.cargos === 'object' ? u.cargos.nome : null) || (u.cargo ? `Cargo ${u.cargo}` : '-');
+                        const cargoName = u.cargos?.nome || (u.cargo ? `Cargo ${u.cargo}` : '-');
                         meta[u.id] = { nome: u.nome, setor: u.setor || '-', cargo: cargoName };
                     });
                     setRespondentMetadata(meta);
