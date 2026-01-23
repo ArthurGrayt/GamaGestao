@@ -2435,7 +2435,7 @@ export const Formularios: React.FC = () => {
                             </div>
 
                             {/* 5. Análise Interpretativa */}
-                            <div className="mb-0" style={{ marginTop: '10rem' }}>
+                            <div className="mb-0" style={{ marginTop: '4rem' }}>
                                 <h2 className="text-lg font-bold text-blue-800 mb-2" style={{ breakAfter: 'avoid', pageBreakAfter: 'avoid' }}>5. Análise Interpretativa</h2>
                                 <div className="text-slate-800 text-sm leading-relaxed text-justify">
                                     {interpretativeText ? (
@@ -2559,7 +2559,7 @@ export const Formularios: React.FC = () => {
                             </div>
 
                             {/* 7. Conclusão */}
-                            <div className="mb-8">
+                            <div className="mb-8" style={{ marginTop: '6rem' }}>
                                 <h2 className="text-lg font-bold text-blue-800 mb-2" style={{ breakAfter: 'avoid' }}>7. Conclusão</h2>
                                 <div className="text-slate-800 text-sm leading-relaxed text-justify">
                                     {conclusionText ? (
