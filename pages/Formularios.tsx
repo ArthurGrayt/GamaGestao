@@ -518,6 +518,7 @@ export const Formularios: React.FC = () => {
 
     // Auth & Initial Load
     const [hseActiveTab, setHseActiveTab] = useState<'associations' | 'rules'>('associations');
+    const [activeReportTab, setActiveReportTab] = useState<'report' | 'action_plan'>('report');
     const [loadingHse, setLoadingHse] = useState(false);
     const [expandedDimensions, setExpandedDimensions] = useState<Set<number>>(new Set());
 
@@ -551,7 +552,7 @@ export const Formularios: React.FC = () => {
             // Fetch Questions for this form
             const { data: qs, error: qError } = await supabase
                 .from('form_questions')
-                .select('*')
+                .select('*, plano_acao_item, titulo_relatorio')
                 .eq('form_id', form.id)
                 .order('question_order', { ascending: true });
 
@@ -614,6 +615,22 @@ export const Formularios: React.FC = () => {
         } catch (err) {
             console.error(err);
             alert("Erro ao atualizar dimensão.");
+        }
+    };
+
+    const handleSaveQuestionActionPlan = async (questionId: number, field: 'plano_acao_item' | 'titulo_relatorio', value: string) => {
+        try {
+            // Optimistic Update
+            setHseQuestions(prev => prev.map(q => q.id === questionId ? { ...q, [field]: value } : q));
+
+            const { error } = await supabase
+                .from('form_questions')
+                .update({ [field]: value })
+                .eq('id', questionId);
+
+            if (error) throw error;
+        } catch (err) {
+            console.error("Erro ao salvar plano de ação:", err);
         }
     };
 
@@ -1071,7 +1088,7 @@ export const Formularios: React.FC = () => {
     const [loadingStats, setLoadingStats] = useState(false);
 
     // New Analytics State
-    const [analyticsTab, setAnalyticsTab] = useState<'overview' | 'individual' | 'diagnostic' | 'interpretative'>('diagnostic');
+    const [analyticsTab, setAnalyticsTab] = useState<'overview' | 'individual' | 'diagnostic' | 'interpretative' | 'action_plan'>('diagnostic');
     const [infoPopoverId, setInfoPopoverId] = useState<number | null>(null);
     const [selectedRespondent, setSelectedRespondent] = useState<string | null>(null); // Groups by responder_identifier + timestamp key
     const [diagnosticData, setDiagnosticData] = useState<HSEDiagnosticItem[]>([]);
@@ -2448,9 +2465,23 @@ export const Formularios: React.FC = () => {
                                 <div className="text-slate-800 text-sm leading-relaxed text-justify">
                                     {actionPlanText ? (
                                         actionPlanText.split('\n').map((line, idx) => {
-                                            // Strip HTML bold tags if present
-                                            const cleanText = line.replace(/<\/?b>/gi, '').trim();
-                                            if (!cleanText) return <br key={idx} />;
+                                            // Handle HTML bold tags <b>text</b>
+                                            // We won't strip them anymore, we'll parse them.
+                                            const rawLine = line.trim();
+                                            if (!rawLine) return <br key={idx} />;
+
+                                            // Helper to parse line with <b> tags
+                                            const parseBold = (text: string) => {
+                                                const parts = text.split(/(<b>.*?<\/b>)/g);
+                                                return parts.map((part, pIdx) => {
+                                                    if (part.startsWith('<b>') && part.endsWith('</b>')) {
+                                                        return <b key={pIdx} className="font-bold text-slate-900">{part.replace(/<\/?b>/g, '')}</b>;
+                                                    }
+                                                    return part;
+                                                });
+                                            };
+
+                                            const cleanText = rawLine.replace(/<\/?b>/gi, ''); // Still needed for logic checks like startsWith, but we use rawLine for rendering now if no special logic applies
 
                                             // Bold headers logic
                                             const lowerText = cleanText.toLowerCase();
@@ -2459,26 +2490,40 @@ export const Formularios: React.FC = () => {
                                                 cleanText.match(/:+$/); // Ends with : or ::
 
                                             if (isHeader) {
-                                                return <p key={idx} className="font-bold text-slate-900 mt-3 mb-1">{cleanText}</p>;
+                                                return <p key={idx} className="font-bold text-slate-900 mt-3 mb-1">{parseBold(rawLine)}</p>;
                                             }
 
                                             // Parsing for Inline Titles (Dimensions or "Title:")
-                                            let content: React.ReactNode = cleanText;
+                                            // We must be careful not to break the parsing logic. 
+                                            // Simplest approach: Use parseBold on the final content if no other special splitting is done.
+                                            // However, the logic below splits by index.
+
+                                            let content: React.ReactNode = parseBold(rawLine);
 
                                             // Check if line starts with a Dimension Name
                                             const startDim = hseDimensions.find(d => lowerText.startsWith(d.name.toLowerCase()));
                                             if (startDim) {
                                                 const dimLen = startDim.name.length;
-                                                const titlePart = cleanText.substring(0, dimLen);
-                                                const restPart = cleanText.substring(dimLen);
-                                                content = <><span className="font-bold text-slate-900">{titlePart}</span>{restPart}</>;
+                                                // We need to operate on the raw text but preserve the bold tags inside "restPart" if any
+                                                // This is tricky. Let's simplify: if it matches a dimension, we bold the dimension name manually, 
+                                                // and then parse the rest for <b> tags.
+
+                                                // Re-extract from rawLine to preserve tags in the 'rest'
+                                                const titlePart = rawLine.substring(0, dimLen);
+                                                const restPart = rawLine.substring(dimLen);
+
+                                                content = <><span className="font-bold text-slate-900">{titlePart}</span>{parseBold(restPart)}</>;
                                             } else {
                                                 // Check for "Title:" pattern
                                                 const match = cleanText.match(/^(.+?):/);
                                                 if (match) {
-                                                    const fullTitle = match[0]; // Includes the colon
-                                                    const rest = cleanText.substring(fullTitle.length);
-                                                    content = <><span className="font-bold text-slate-900">{fullTitle}</span>{rest}</>;
+                                                    // Again, try to find this in rawLine
+                                                    const matchRaw = rawLine.match(/^(.+?):/);
+                                                    if (matchRaw) {
+                                                        const fullTitle = matchRaw[0];
+                                                        const rest = rawLine.substring(fullTitle.length);
+                                                        content = <><span className="font-bold text-slate-900">{fullTitle}</span>{parseBold(rest)}</>;
+                                                    }
                                                 }
                                             }
 
@@ -3376,6 +3421,76 @@ export const Formularios: React.FC = () => {
 
 
 
+        const renderActionPlan = () => {
+            return (
+                <div className="p-6 bg-slate-50 min-h-[500px] animate-in fade-in duration-300">
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-6">
+                        <div className="flex items-start gap-3">
+                            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                                <Info size={20} />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-800">Editor de Planos de Ação</h3>
+                                <p className="text-slate-500 mt-1">
+                                    Edite aqui os títulos e ações sugeridas para cada pergunta. Estas informações serão exibidas no relatório na seção "Recomendações de Plano de Ação".
+                                    As alterações são salvas automaticamente ao sair do campo.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        {questions.map((q, idx) => (
+                            <div key={q.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-blue-300 transition-colors">
+                                <div className="flex items-start justify-between mb-4">
+                                    <div className="flex gap-3">
+                                        <span className="flex-shrink-0 w-6 h-6 flex items-center justify-center bg-slate-100 text-slate-600 font-bold rounded text-xs">
+                                            {idx + 1}
+                                        </span>
+                                        <div>
+                                            <p className="font-medium text-slate-800">{q.label}</p>
+                                            {q.hse_dimension_id && (
+                                                <span className="inline-block mt-1 px-2 py-0.5 bg-slate-100 text-slate-500 text-xs rounded-full">
+                                                    Dimensão: {hseDimensions.find(d => d.id === q.hse_dimension_id)?.name || 'N/A'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-9">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+                                            Titulo do plano de ação do item
+                                        </label>
+                                        <input
+                                            type="text"
+                                            defaultValue={q.titulo_relatorio || ''}
+                                            onBlur={(e) => handleSaveQuestionActionPlan(q.id, 'titulo_relatorio', e.target.value)}
+                                            placeholder="Ex: Melhoria na Comunicação"
+                                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+                                            Plano de ação
+                                        </label>
+                                        <textarea
+                                            defaultValue={q.plano_acao_item || ''}
+                                            onBlur={(e) => handleSaveQuestionActionPlan(q.id, 'plano_acao_item', e.target.value)}
+                                            placeholder="Descreva a ação sugerida..."
+                                            rows={2}
+                                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
         return (
             <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <header className="mb-8">
@@ -3411,6 +3526,12 @@ export const Formularios: React.FC = () => {
                         >
                             Análise Interpretativa
                         </button>
+                        <button
+                            onClick={() => setAnalyticsTab('action_plan')}
+                            className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${analyticsTab === 'action_plan' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Planos de ação
+                        </button>
 
                     </div>
                 </header>
@@ -3424,7 +3545,8 @@ export const Formularios: React.FC = () => {
                                 {analyticsTab === 'overview' ? renderOverview() :
                                     analyticsTab === 'individual' ? renderIndividual() :
                                         analyticsTab === 'diagnostic' ? renderDiagnostic() :
-                                            renderInterpretative()
+                                            analyticsTab === 'action_plan' ? renderActionPlan() :
+                                                renderInterpretative()
                                 }
                             </div>
                             <ScrollToTopButton />
