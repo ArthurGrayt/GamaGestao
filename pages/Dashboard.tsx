@@ -11,6 +11,7 @@ import { OperationalEfficiencyQuadrant } from '../components/OperationalEfficien
 import { ExpansionAcademyQuadrant } from '../components/ExpansionAcademyQuadrant';
 import { ClimateQualityQuadrant } from '../components/ClimateQualityQuadrant';
 import { DailyGoalQuadrant } from '../components/DailyGoalQuadrant';
+import { SupportTicketsQuadrant } from '../components/SupportTicketsQuadrant';
 
 
 export const Dashboard: React.FC = () => {
@@ -407,6 +408,7 @@ export const Dashboard: React.FC = () => {
         <ExpansionAcademyQuadrant />
         <ClimateQualityQuadrant />
         <DailyGoalQuadrant />
+        <SupportTicketsQuadrant />
       </div>
     </div>
   );
