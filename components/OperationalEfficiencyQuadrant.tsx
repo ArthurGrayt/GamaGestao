@@ -64,7 +64,7 @@ export const OperationalEfficiencyQuadrant: React.FC = () => {
                 // 2. Backlog and Rework Logic (doc_seg)
                 const { data: docs } = await supabase
                     .from('doc_seg')
-                    .select('*')
+                    .select('*, document_info:doc(nome), unit_info:empresa(nome_unidade)')
                     .gte('created_at', startDate)
                     .lt('created_at', endDate);
 
@@ -206,56 +206,67 @@ export const OperationalEfficiencyQuadrant: React.FC = () => {
                 </div>
             </div>
 
-            {/* Backlog Modal */}
+            {/* Backlog Overlay (replacing Modal) */}
             {showModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh]">
-                        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
+                <div className="absolute inset-2 z-40 flex items-center justify-center p-2 bg-slate-900/10 backdrop-blur-md animate-in fade-in zoom-in-95 duration-200 rounded-2xl">
+                    <div className="bg-white/95 rounded-2xl shadow-xl w-full h-full overflow-hidden flex flex-col border border-white/40">
+                        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white/80">
                             <div>
-                                <h3 className="text-xl font-bold text-slate-800">Detalhes do Backlog</h3>
-                                <p className="text-sm text-slate-500">Lista de documentos com pendências</p>
+                                <h3 className="text-base font-bold text-slate-800 leading-tight">Pendências</h3>
+                                <p className="text-[10px] text-slate-500 uppercase tracking-tighter">Detalhamento de Documentos</p>
                             </div>
                             <button
-                                onClick={() => setShowModal(false)}
-                                className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-red-500 transition-colors"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowModal(false);
+                                }}
+                                className="p-1.5 hover:bg-red-50 rounded-full text-slate-400 hover:text-red-500 transition-colors"
+                                title="Fechar"
                             >
-                                <X size={20} />
+                                <X size={18} />
                             </button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
+                        <div className="flex-1 overflow-y-auto p-4 bg-slate-50/30">
                             {stats.pendingDocs.length === 0 ? (
-                                <div className="text-center py-12 text-slate-400">
-                                    <FileText size={48} className="mx-auto mb-4 opacity-10" />
-                                    <p>Nenhuma pendência encontrada.</p>
+                                <div className="text-center py-8 text-slate-400">
+                                    <FileText size={32} className="mx-auto mb-2 opacity-10" />
+                                    <p className="text-sm">Nenhuma pendência.</p>
                                 </div>
                             ) : (
-                                <div className="space-y-3">
+                                <div className="space-y-2">
                                     {stats.pendingDocs.map((doc, idx) => (
-                                        <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between group hover:border-blue-300 transition-all">
-                                            <div className="flex items-center gap-3">
-                                                <div className="p-2 bg-blue-50 rounded-lg text-blue-500">
-                                                    <FileText size={18} />
+                                        <div key={idx} className="bg-white/80 p-3 rounded-lg border border-slate-200/50 shadow-sm flex items-center justify-between group hover:border-blue-300 transition-all">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <div className="p-1.5 bg-blue-50 rounded-md text-blue-500 flex-shrink-0">
+                                                    <FileText size={14} />
                                                 </div>
-                                                <div>
-                                                    <p className="font-bold text-slate-700">{doc.doc || 'Documento sem nome'}</p>
-                                                    <p className="text-xs text-slate-500">{doc.empresa} • {doc.status}</p>
+                                                <div className="truncate">
+                                                    <p className="font-bold text-slate-700 text-xs truncate">
+                                                        {doc.document_info?.nome || doc.doc || 'Documento'}
+                                                    </p>
+                                                    <p className="text-[10px] text-slate-500 truncate">
+                                                        {(doc.unit_info as any)?.nome_unidade || doc.empresa || 'Empresa'}
+                                                    </p>
                                                 </div>
                                             </div>
-                                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${doc.status === 'em Andamento' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>
-                                                {doc.status}
+                                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase flex-shrink-0 ${doc.status === 'em Andamento' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>
+                                                {doc.status === 'em Andamento' ? 'Andm' : 'Pend'}
                                             </span>
                                         </div>
                                     ))}
                                 </div>
                             )}
                         </div>
-                        <div className="p-4 bg-white border-t border-slate-100 text-center">
+                        <div className="p-3 bg-white/80 border-t border-slate-100 text-center">
                             <button
-                                onClick={() => setShowModal(false)}
-                                className="px-6 py-2 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 transition-colors"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowModal(false);
+                                }}
+                                className="w-full py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-slate-800 transition-all active:scale-95"
                             >
-                                Fechar
+                                Voltar ao Painel
                             </button>
                         </div>
                     </div>
