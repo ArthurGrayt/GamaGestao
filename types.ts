@@ -106,6 +106,8 @@ export interface FormQuestion {
   temp_id?: string; // For stable keys in frontend
   hse_dimension_id?: number;
   hse_question_number?: number;
+  plano_acao_item?: string;
+  titulo_relatorio?: string;
 }
 
 export interface Collaborator {

@@ -518,6 +518,7 @@ export const Formularios: React.FC = () => {
 
     // Auth & Initial Load
     const [hseActiveTab, setHseActiveTab] = useState<'associations' | 'rules'>('associations');
+    const [activeReportTab, setActiveReportTab] = useState<'report' | 'action_plan'>('report');
     const [loadingHse, setLoadingHse] = useState(false);
     const [expandedDimensions, setExpandedDimensions] = useState<Set<number>>(new Set());
 
@@ -551,7 +552,7 @@ export const Formularios: React.FC = () => {
             // Fetch Questions for this form
             const { data: qs, error: qError } = await supabase
                 .from('form_questions')
-                .select('*')
+                .select('*, plano_acao_item, titulo_relatorio')
                 .eq('form_id', form.id)
                 .order('question_order', { ascending: true });
 
@@ -614,6 +615,22 @@ export const Formularios: React.FC = () => {
         } catch (err) {
             console.error(err);
             alert("Erro ao atualizar dimensão.");
+        }
+    };
+
+    const handleSaveQuestionActionPlan = async (questionId: number, field: 'plano_acao_item' | 'titulo_relatorio', value: string) => {
+        try {
+            // Optimistic Update
+            setHseQuestions(prev => prev.map(q => q.id === questionId ? { ...q, [field]: value } : q));
+
+            const { error } = await supabase
+                .from('form_questions')
+                .update({ [field]: value })
+                .eq('id', questionId);
+
+            if (error) throw error;
+        } catch (err) {
+            console.error("Erro ao salvar plano de ação:", err);
         }
     };
 
@@ -1071,7 +1088,7 @@ export const Formularios: React.FC = () => {
     const [loadingStats, setLoadingStats] = useState(false);
 
     // New Analytics State
-    const [analyticsTab, setAnalyticsTab] = useState<'overview' | 'individual' | 'diagnostic' | 'interpretative'>('diagnostic');
+    const [analyticsTab, setAnalyticsTab] = useState<'overview' | 'individual' | 'diagnostic' | 'interpretative' | 'action_plan'>('diagnostic');
     const [infoPopoverId, setInfoPopoverId] = useState<number | null>(null);
     const [selectedRespondent, setSelectedRespondent] = useState<string | null>(null); // Groups by responder_identifier + timestamp key
     const [diagnosticData, setDiagnosticData] = useState<HSEDiagnosticItem[]>([]);
@@ -1081,6 +1098,10 @@ export const Formularios: React.FC = () => {
     const [technicalResponsible, setTechnicalResponsible] = useState<string>('');
     const [technicalCrp, setTechnicalCrp] = useState<string>('');
     const [expandedInterpretativeDims, setExpandedInterpretativeDims] = useState<Set<number>>(new Set());
+
+    // Action Plan Search & Filter
+    const [actionPlanSearch, setActionPlanSearch] = useState('');
+    const [actionPlanFilterDimension, setActionPlanFilterDimension] = useState<number | 'all'>('all');
 
     // Overview Search State
     const [overviewSearch, setOverviewSearch] = useState('');
@@ -1143,7 +1164,7 @@ export const Formularios: React.FC = () => {
                     const meta: Record<string, { nome: string; setor: string; cargo: string }> = {};
                     usersData.forEach((u: any) => {
                         // Handle nested cargo object if join works
-                        const cargoName = u.cargos?.nome || (typeof u.cargos === 'object' ? u.cargos.nome : null) || (u.cargo ? `Cargo ${u.cargo}` : '-');
+                        const cargoName = u.cargos?.nome || (u.cargo ? `Cargo ${u.cargo}` : '-');
                         meta[u.id] = { nome: u.nome, setor: u.setor || '-', cargo: cargoName };
                     });
                     setRespondentMetadata(meta);
@@ -1507,17 +1528,6 @@ export const Formularios: React.FC = () => {
 
             return (
                 <div className="space-y-6 animate-in fade-in duration-300">
-                    <div className="flex justify-between items-center">
-                        <h2 className="text-lg font-bold text-slate-700">Visão Geral</h2>
-                        <div className="flex gap-2">
-                            <Button variant="outline" size="sm" onClick={() => setIsReportModalOpen(true)} className="gap-2">
-                                <FileText size={14} /> Visualizar Relatório HSE
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => setIsHistoryModalOpen(true)} className="gap-2">
-                                <Clock size={14} /> Histórico de Respostas
-                            </Button>
-                        </div>
-                    </div>
 
                     {/* Compact Summary Cards - GRID COLS 4 to accommodate removal */}
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1881,6 +1891,20 @@ export const Formularios: React.FC = () => {
             // Check sector condition
             const showSector = totalEmployees > 20;
 
+            // Helper for Title Case
+            const toTitleCase = (str: string) => {
+                if (!str) return '';
+                return str.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+            };
+
+            // Helper for Initials
+            const getInitials = (name: string) => {
+                const parts = name.split(' ').filter(Boolean);
+                if (parts.length === 0) return '?';
+                if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+                return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+            };
+
             // DETAIL VIEW (Selected Respondent)
             if (selectedRespondent) {
                 const respondentAnswers = getRespondentAnswers(selectedRespondent);
@@ -1901,7 +1925,7 @@ export const Formularios: React.FC = () => {
                             </Button>
                             <div className="flex-1">
                                 <div className="flex items-baseline gap-3">
-                                    <h2 className="text-xl font-bold text-slate-800">{respondentName}</h2>
+                                    <h2 className="text-xl font-bold text-slate-800">{toTitleCase(respondentName)}</h2>
                                     <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-mono">{respondentId}</span>
                                 </div>
                                 <p className="text-slate-500 text-sm flex items-center gap-1 mt-1">
@@ -1961,159 +1985,102 @@ export const Formularios: React.FC = () => {
             }
 
             return (
-                <div className="space-y-6 animate-in fade-in duration-300">
-                    <div className="flex justify-between items-center">
-                        <div />
-                        <Button variant="outline" size="sm" onClick={() => setIsReportModalOpen(true)} className="gap-2 text-xs">
-                            <FileText size={14} /> Visualizar Relatório HSE
-                        </Button>
-                    </div>
+                <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-300">
 
-                    {/* KPIs */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Seção B: Faixa de Métricas Unificada (Estilo Ant Design) */}
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex divide-x divide-gray-100 overflow-hidden">
                         <div
                             onClick={() => setIsParticipationModalOpen(true)}
-                            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm cursor-pointer hover:border-blue-300 hover:shadow-md transition-all group"
+                            className="flex-1 p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-gray-50 transition-colors"
                         >
-                            <div className="flex justify-between items-start mb-4">
-                                <div>
-                                    <p className="text-sm text-slate-500 font-medium group-hover:text-blue-600 transition-colors">Participação</p>
-                                    <h4 className="text-2xl font-bold text-slate-800 mt-1">
-                                        {totalRespondents}
-                                        <span className="text-sm font-normal text-slate-400 ml-1">/ {totalEmployees || '?'}</span>
-                                    </h4>
-                                </div>
-                                <div className="p-2 bg-blue-50 rounded-lg text-blue-600 group-hover:bg-blue-100 transition-colors">
-                                    <Users size={20} />
-                                </div>
-                            </div>
-                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                <div
-                                    className="h-full bg-blue-500 rounded-full"
-                                    style={{ width: `${totalEmployees > 0 ? (totalRespondents / totalEmployees) * 100 : 0}%` }}
-                                ></div>
+                            <span className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Participação</span>
+                            <div className="flex items-baseline gap-1">
+                                <span className="text-3xl font-bold text-gray-900">{totalRespondents}</span>
+                                <span className="text-sm text-gray-400 font-normal">/ {totalEmployees || '?'}</span>
                             </div>
                         </div>
-
-                        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                            <div className="flex justify-between items-start mb-4">
-                                <div>
-                                    <p className="text-sm text-slate-500 font-medium">Total de Perguntas</p>
-                                    <h4 className="text-2xl font-bold text-slate-800 mt-1">{totalQuestions}</h4>
-                                </div>
-                                <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
-                                    <List size={20} />
-                                </div>
-                            </div>
+                        <div className="flex-1 p-6 flex flex-col items-center justify-center text-center">
+                            <span className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Total de Perguntas</span>
+                            <span className="text-3xl font-bold text-gray-900">{totalQuestions}</span>
                         </div>
-
-                        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                            <div className="flex justify-between items-start mb-4">
-                                <div>
-                                    <p className="text-sm text-slate-500 font-medium">Tempo Médio</p>
-                                    <h4 className="text-2xl font-bold text-slate-800 mt-1">-- min</h4>
-                                </div>
-                                <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
-                                    <Clock size={20} />
-                                </div>
-                            </div>
-                            <p className="text-xs text-slate-400 mt-2">Estimativa baseada em conclusões</p>
+                        <div className="flex-1 p-6 flex flex-col items-center justify-center text-center">
+                            <span className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Tempo Médio</span>
+                            <span className="text-3xl font-bold text-gray-900">-- min</span>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        {/* Respostas Recentes (2/3 Width) */}
-                        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                            <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-                                <h4 className="font-bold text-slate-700">Respostas Recentes</h4>
-                                <div className="relative w-full sm:w-64">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                                    <input
-                                        type="text"
-                                        placeholder="Buscar colaborador..."
-                                        value={overviewSearch}
-                                        onChange={(e) => setOverviewSearch(e.target.value)}
-                                        className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
-                                    />
-                                </div>
+                    {/* Seção C: Tabela de Dados (Estilo Apple HIG) */}
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4 bg-gray-50/50">
+                            <h4 className="font-bold text-gray-800">Respostas Recentes</h4>
+                            <div className="relative w-full sm:w-64">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                                <input
+                                    type="text"
+                                    placeholder="Buscar colaborador..."
+                                    value={overviewSearch}
+                                    onChange={(e) => setOverviewSearch(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#139690]/10 focus:border-[#139690] transition-all"
+                                />
                             </div>
-                            {filteredRespondents.length === 0 ? (
-                                <div className="p-12 text-center text-slate-400">
-                                    <Users size={48} className="mx-auto mb-4 opacity-20" />
-                                    <p>Nenhuma resposta encontrada.</p>
-                                </div>
-                            ) : (
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-sm text-left">
-                                        <thead className="bg-slate-50 text-slate-500 font-medium">
-                                            <tr>
-                                                <th className="px-6 py-3">Participante</th>
-                                                {showSector && <th className="px-6 py-3">Setor</th>}
-                                                <th className="px-6 py-3">Data Envio</th>
-                                                <th className="px-6 py-3 text-right">Ações</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {filteredRespondents.map((r, idx) => (
-                                                <tr key={idx} className="group hover:bg-slate-50 transition-colors">
-                                                    <td className="px-6 py-4 font-medium text-slate-800">
-                                                        <div>
-                                                            {r.name}
-                                                            <span className="block text-xs text-slate-400 font-mono mt-0.5">{r.identifier}</span>
-                                                        </div>
-                                                    </td>
-                                                    {showSector && (
-                                                        <td className="px-6 py-4 text-slate-600">
-                                                            {r.setor || '-'}
-                                                        </td>
-                                                    )}
-                                                    <td className="px-6 py-4 text-slate-500">
-                                                        {new Date(r.date).toLocaleString()}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-right">
-                                                        <Button
-                                                            size="sm"
-                                                            variant="outline"
-                                                            onClick={() => {
-                                                                setAnalyticsTab('individual');
-                                                                setSelectedRespondent(r.id);
-                                                            }}
-                                                            className="opacity-0 group-hover:opacity-100 transition-opacity"
-                                                        >
-                                                            Ver Detalhes
-                                                        </Button>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            )}
                         </div>
 
-                        {/* Sector Breakdown Sidebar (1/3 Width) */}
-                        <div className="lg:col-span-1 space-y-6">
-                            {totalEmployees > 20 && sectorStats.length > 0 ? (
-                                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                                    <h4 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
-                                        <Users size={16} className="text-slate-400" />
-                                        Adesão por Setor
-                                    </h4>
-                                    <div className="space-y-3">
-                                        {sectorStats.map((stat, idx) => (
-                                            <div key={idx} className="flex justify-between items-center p-2 bg-slate-50 rounded-lg border border-slate-100">
-                                                <span className="text-xs font-medium text-slate-600 truncate mr-2" title={stat.name}>{stat.name}</span>
-                                                <span className="text-xs font-bold text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200">{stat.count}</span>
-                                            </div>
+                        {filteredRespondents.length === 0 ? (
+                            <div className="p-12 text-center text-gray-400">
+                                <Users size={48} className="mx-auto mb-4 opacity-20" />
+                                <p>Nenhuma resposta encontrada.</p>
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-gray-50/50 text-gray-500 font-semibold uppercase tracking-wider text-[11px]">
+                                        <tr>
+                                            <th className="px-8 py-4">Participante</th>
+                                            {showSector && <th className="px-8 py-4">Setor</th>}
+                                            <th className="px-8 py-4">Data Envio</th>
+                                            <th className="px-8 py-4 text-right">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {filteredRespondents.map((r, idx) => (
+                                            <tr key={idx} className="group hover:bg-gray-50/50 transition-colors">
+                                                <td className="px-8 py-5">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-xs shrink-0 border border-gray-200">
+                                                            {getInitials(r.name)}
+                                                        </div>
+                                                        <div>
+                                                            <div className="font-medium text-gray-900">{toTitleCase(r.name)}</div>
+                                                            <div className="text-xs text-gray-500 font-medium mt-0.5">{r.identifier}</div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                {showSector && (
+                                                    <td className="px-8 py-5 text-gray-600">
+                                                        {r.setor || '-'}
+                                                    </td>
+                                                )}
+                                                <td className="px-8 py-5 text-gray-500">
+                                                    {new Date(r.date).toLocaleString()}
+                                                </td>
+                                                <td className="px-8 py-5 text-right">
+                                                    <button
+                                                        onClick={() => {
+                                                            setAnalyticsTab('individual');
+                                                            setSelectedRespondent(r.id);
+                                                        }}
+                                                        className="p-2 text-gray-400 hover:bg-white rounded-full transition-all group-hover:text-[#139690] hover:shadow-sm"
+                                                        title="Ver Detalhes"
+                                                    >
+                                                        <ChevronRight size={20} />
+                                                    </button>
+                                                </td>
+                                            </tr>
                                         ))}
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 border-dashed text-center">
-                                    <p className="text-sm text-slate-400">Sem dados de setor suficientes.</p>
-                                </div>
-                            )}
-                        </div>
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </div>
 
                     {/* HSE Report Modal */}
@@ -2255,22 +2222,41 @@ export const Formularios: React.FC = () => {
                                     </ul>
                                 </div>
 
-                                <div>
-                                    <p className="font-bold mb-2">Classificação por média:</p>
-                                    <ul className="list-none space-y-1 pl-0 font-medium">
-                                        <li className="flex items-center gap-2">
-                                            - 0 a 1: <span className="text-emerald-600 font-bold">baixo</span>
-                                        </li>
-                                        <li className="flex items-center gap-2">
-                                            - &gt;1 a 2: <span className="text-cyan-600 font-bold">médio</span>
-                                        </li>
-                                        <li className="flex items-center gap-2">
-                                            - &gt;2 a 3: <span className="text-yellow-600 font-bold">moderado</span>
-                                        </li>
-                                        <li className="flex items-center gap-2">
-                                            - &gt;3 a 4: <span className="text-red-600 font-bold">alto</span>
-                                        </li>
-                                    </ul>
+                                <div className="grid grid-cols-2 gap-8">
+                                    <div>
+                                        <p className="font-bold mb-2 text-sm">Quanto <span className="font-black italic">maior</span> a média <span className="font-black italic">maior</span> o risco:</p>
+                                        <ul className="list-none space-y-1 pl-0 font-medium text-xs">
+                                            <li className="flex items-center gap-2">
+                                                - 0 a 1: <span className="text-emerald-600 font-bold">baixo</span>
+                                            </li>
+                                            <li className="flex items-center gap-2">
+                                                - &gt;1 a 2: <span className="text-cyan-600 font-bold">médio</span>
+                                            </li>
+                                            <li className="flex items-center gap-2">
+                                                - &gt;2 a 3: <span className="text-yellow-600 font-bold">moderado</span>
+                                            </li>
+                                            <li className="flex items-center gap-2">
+                                                - &gt;3 a 4: <span className="text-red-600 font-bold">alto</span>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                    <div>
+                                        <p className="font-bold mb-2 text-sm">Quanto <span className="font-black italic">menor</span> a média <span className="font-black italic">maior</span> o risco:</p>
+                                        <ul className="list-none space-y-1 pl-0 font-medium text-xs">
+                                            <li className="flex items-center gap-2">
+                                                - 0 a 1: <span className="text-red-600 font-bold">alto</span>
+                                            </li>
+                                            <li className="flex items-center gap-2">
+                                                - &gt;1 a 2: <span className="text-yellow-600 font-bold">moderado</span>
+                                            </li>
+                                            <li className="flex items-center gap-2">
+                                                - &gt;2 a 3: <span className="text-cyan-600 font-bold">médio</span>
+                                            </li>
+                                            <li className="flex items-center gap-2">
+                                                - &gt;3 a 4: <span className="text-emerald-600 font-bold">baixo</span>
+                                            </li>
+                                        </ul>
+                                    </div>
                                 </div>
                             </div>
 
@@ -2304,7 +2290,7 @@ export const Formularios: React.FC = () => {
                                                         return (
                                                             <li key={idx} className="text-slate-800 break-inside-avoid" style={{ pageBreakInside: 'avoid', display: 'block', marginBottom: '8px' }}>
                                                                 <span>
-                                                                    - {qNum}. {item.texto_pergunta}: <span className="font-semibold">{item.texto_risco_completo || 'N/A'}</span> ({Number(item.media_valor).toFixed(2)})
+                                                                    - {qNum}. {item.texto_pergunta}: <span className="font-semibold">{(item.texto_risco_completo || 'N/A').replace(/fragilidade/gi, 'exposição')}</span> ({Number(item.media_valor).toFixed(2)})
                                                                 </span>
                                                             </li>
                                                         );
@@ -2348,7 +2334,7 @@ export const Formularios: React.FC = () => {
                                         const finalRiskText = analysisItem ? analysisItem.texto_risco_dimensao : '';
 
                                         // Determine Risk Label & Color
-                                        let riskLabel = finalRiskText || '';
+                                        let riskLabel = (finalRiskText || '').replace(/fragilidade/gi, 'exposição');
                                         let riskColor = '';
 
                                         // Fallback calculation if View is empty (or for coloring logic)
@@ -2360,17 +2346,33 @@ export const Formularios: React.FC = () => {
                                         else if (lowerRisk === 'alto') riskColor = 'text-red-600 font-bold';
                                         else {
                                             // Fallback Logic if text is missing or unknown
-                                            if (finalAvg <= 1) { riskLabel = 'baixo'; riskColor = 'text-emerald-600 font-bold'; }
+                                            if (finalAvg <= 1) { riskLabel = 'baixo'; riskColor = 'text-green-600 font-bold'; }
                                             else if (finalAvg <= 2) { riskLabel = 'médio'; riskColor = 'text-cyan-600 font-bold'; }
                                             else if (finalAvg <= 3) { riskLabel = 'moderado'; riskColor = 'text-yellow-600 font-bold'; }
                                             else { riskLabel = 'alto'; riskColor = 'text-red-600 font-bold'; }
+
+                                            // Override color if 'is_positive' logic applies (e.g. higher score = good)
+                                            // Note: ideally we should have is_positive available here.
+                                            // Let's check hseDimensions for is_positive
+                                            const dimMeta = hseDimensions.find(d => d.id === dimId);
+                                            const isPositive = dimMeta?.is_positive;
+
+                                            if (isPositive) {
+                                                if (finalAvg >= 3) { riskLabel = 'baixo'; riskColor = 'text-green-600 font-bold'; }
+                                                else if (finalAvg >= 2) { riskLabel = 'médio'; riskColor = 'text-cyan-600 font-bold'; }
+                                                else if (finalAvg >= 1) { riskLabel = 'moderado'; riskColor = 'text-yellow-600 font-bold'; }
+                                                else { riskLabel = 'alto'; riskColor = 'text-red-600 font-bold'; }
+                                            }
                                         }
+
+                                        // Helper to clean and format label
+                                        const cleanRiskLabel = (riskLabel.replace(/risco de exposição/gi, '').trim());
 
                                         return (
                                             <React.Fragment key={dimId || index}>
                                                 <div className="py-1 text-slate-800">{dimName}</div>
                                                 <div className="py-1 text-slate-800">
-                                                    <span className={riskColor}>{riskLabel}</span> risco de exposição ({finalAvg.toFixed(2)})
+                                                    <span className={`${riskColor}`}>{cleanRiskLabel} risco de exposição ({finalAvg.toFixed(2)})</span>
                                                 </div>
                                             </React.Fragment>
                                         );
@@ -2379,11 +2381,11 @@ export const Formularios: React.FC = () => {
                             </div>
 
                             {/* 5. Análise Interpretativa */}
-                            <div className="mb-0" style={{ marginTop: '10rem' }}>
+                            <div className="mb-0" style={{ marginTop: '4rem' }}>
                                 <h2 className="text-lg font-bold text-blue-800 mb-2" style={{ breakAfter: 'avoid', pageBreakAfter: 'avoid' }}>5. Análise Interpretativa</h2>
                                 <div className="text-slate-800 text-sm leading-relaxed text-justify">
                                     {interpretativeText ? (
-                                        interpretativeText.split('\n').map((line, idx) => {
+                                        interpretativeText.replace(/fragilidade/gi, 'exposição').split('\n').map((line, idx) => {
                                             // Strip HTML bold tags if present
                                             const cleanText = line.replace(/<\/?b>/gi, '').trim();
                                             if (!cleanText) return <br key={idx} />;
@@ -2431,10 +2433,24 @@ export const Formularios: React.FC = () => {
                                 <h2 className="text-lg font-bold text-blue-800 mb-2" style={{ breakAfter: 'avoid' }}>6. Recomendações de Plano de Ação</h2>
                                 <div className="text-slate-800 text-sm leading-relaxed text-justify">
                                     {actionPlanText ? (
-                                        actionPlanText.split('\n').map((line, idx) => {
-                                            // Strip HTML bold tags if present
-                                            const cleanText = line.replace(/<\/?b>/gi, '').trim();
-                                            if (!cleanText) return <br key={idx} />;
+                                        actionPlanText.replace(/fragilidade/gi, 'exposição').split('\n').map((line, idx) => {
+                                            // Handle HTML bold tags <b>text</b>
+                                            // We won't strip them anymore, we'll parse them.
+                                            const rawLine = line.trim();
+                                            if (!rawLine) return <br key={idx} />;
+
+                                            // Helper to parse line with <b> tags
+                                            const parseBold = (text: string) => {
+                                                const parts = text.split(/(<b>.*?<\/b>)/g);
+                                                return parts.map((part, pIdx) => {
+                                                    if (part.startsWith('<b>') && part.endsWith('</b>')) {
+                                                        return <b key={pIdx} className="font-bold text-slate-900">{part.replace(/<\/?b>/g, '')}</b>;
+                                                    }
+                                                    return part;
+                                                });
+                                            };
+
+                                            const cleanText = rawLine.replace(/<\/?b>/gi, ''); // Still needed for logic checks like startsWith, but we use rawLine for rendering now if no special logic applies
 
                                             // Bold headers logic
                                             const lowerText = cleanText.toLowerCase();
@@ -2443,26 +2459,40 @@ export const Formularios: React.FC = () => {
                                                 cleanText.match(/:+$/); // Ends with : or ::
 
                                             if (isHeader) {
-                                                return <p key={idx} className="font-bold text-slate-900 mt-3 mb-1">{cleanText}</p>;
+                                                return <p key={idx} className="font-bold text-slate-900 mt-3 mb-1">{parseBold(rawLine)}</p>;
                                             }
 
                                             // Parsing for Inline Titles (Dimensions or "Title:")
-                                            let content: React.ReactNode = cleanText;
+                                            // We must be careful not to break the parsing logic. 
+                                            // Simplest approach: Use parseBold on the final content if no other special splitting is done.
+                                            // However, the logic below splits by index.
+
+                                            let content: React.ReactNode = parseBold(rawLine);
 
                                             // Check if line starts with a Dimension Name
                                             const startDim = hseDimensions.find(d => lowerText.startsWith(d.name.toLowerCase()));
                                             if (startDim) {
                                                 const dimLen = startDim.name.length;
-                                                const titlePart = cleanText.substring(0, dimLen);
-                                                const restPart = cleanText.substring(dimLen);
-                                                content = <><span className="font-bold text-slate-900">{titlePart}</span>{restPart}</>;
+                                                // We need to operate on the raw text but preserve the bold tags inside "restPart" if any
+                                                // This is tricky. Let's simplify: if it matches a dimension, we bold the dimension name manually, 
+                                                // and then parse the rest for <b> tags.
+
+                                                // Re-extract from rawLine to preserve tags in the 'rest'
+                                                const titlePart = rawLine.substring(0, dimLen);
+                                                const restPart = rawLine.substring(dimLen);
+
+                                                content = <><span className="font-bold text-slate-900">{titlePart}</span>{parseBold(restPart)}</>;
                                             } else {
                                                 // Check for "Title:" pattern
                                                 const match = cleanText.match(/^(.+?):/);
                                                 if (match) {
-                                                    const fullTitle = match[0]; // Includes the colon
-                                                    const rest = cleanText.substring(fullTitle.length);
-                                                    content = <><span className="font-bold text-slate-900">{fullTitle}</span>{rest}</>;
+                                                    // Again, try to find this in rawLine
+                                                    const matchRaw = rawLine.match(/^(.+?):/);
+                                                    if (matchRaw) {
+                                                        const fullTitle = matchRaw[0];
+                                                        const rest = rawLine.substring(fullTitle.length);
+                                                        content = <><span className="font-bold text-slate-900">{fullTitle}</span>{parseBold(rest)}</>;
+                                                    }
                                                 }
                                             }
 
@@ -2475,11 +2505,11 @@ export const Formularios: React.FC = () => {
                             </div>
 
                             {/* 7. Conclusão */}
-                            <div className="mb-8">
+                            <div className="mb-8" style={{ marginTop: '6rem' }}>
                                 <h2 className="text-lg font-bold text-blue-800 mb-2" style={{ breakAfter: 'avoid' }}>7. Conclusão</h2>
                                 <div className="text-slate-800 text-sm leading-relaxed text-justify">
                                     {conclusionText ? (
-                                        conclusionText.split('\n').map((line, idx) => {
+                                        conclusionText.replace(/fragilidade/gi, 'exposição').split('\n').map((line, idx) => {
                                             // Strip HTML bold tags if present
                                             const cleanText = line.replace(/<\/?b>/gi, '').trim();
                                             if (!cleanText) return <br key={idx} />;
@@ -2845,8 +2875,8 @@ export const Formularios: React.FC = () => {
                                             <div>
                                                 <div className="flex items-center gap-3 mb-1">
                                                     <h3 className="text-lg font-bold text-slate-800">Dimensão {dimName}</h3>
-                                                    <span className={`text-[11px] px-2 py-0.5 rounded-full border font-bold uppercase tracking-wide ${riskColor}`}>
-                                                        {riskLabel} risco de exposição ({finalAvg.toFixed(2)})
+                                                    <span className={`text-[11px] px-2 py-0.5 rounded-full border font-bold tracking-wide ${riskColor}`}>
+                                                        {riskLabel.replace(/risco de exposição/gi, '').trim()} risco de exposição ({finalAvg.toFixed(2)})
                                                     </span>
                                                 </div>
                                                 <p className={`text-xs font-semibold ${isPositive ? 'text-blue-600' : 'text-orange-600'}`}>
@@ -3360,62 +3390,217 @@ export const Formularios: React.FC = () => {
 
 
 
+        const renderActionPlan = () => {
+            return (
+                <div className="p-6 bg-slate-50 min-h-[500px] animate-in fade-in duration-300">
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-6">
+                        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-4">
+                            <div className="flex items-start gap-3">
+                                <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                                    <Info size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-slate-800">Editor de Planos de Ação</h3>
+                                    <p className="text-slate-500 mt-1 text-sm">
+                                        Edite aqui os títulos e ações sugeridas para cada pergunta. Estas informações serão exibidas no relatório na seção "Recomendações de Plano de Ação".
+                                        As alterações são salvas automaticamente ao sair do campo.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Search and Filter Controls */}
+                        <div className="flex flex-col md:flex-row gap-4 pt-4 border-t border-slate-100">
+                            <div className="flex-1">
+                                <Input
+                                    icon={Search}
+                                    placeholder="Buscar por pergunta, título, ação..."
+                                    value={actionPlanSearch}
+                                    onChange={(e: any) => setActionPlanSearch(e.target.value)}
+                                    className="w-full"
+                                />
+                            </div>
+                            <div className="w-full md:w-64">
+                                <select
+                                    value={actionPlanFilterDimension}
+                                    onChange={(e) => setActionPlanFilterDimension(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                                    className="w-full h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                >
+                                    <option value="all">Todas as Dimensões</option>
+                                    {hseDimensions.map(d => (
+                                        <option key={d.id} value={d.id}>{d.name}</option>
+                                    ))}
+                                    <option value={0}>Sem Dimensão</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        {questions.filter(q => {
+                            // Filter by Dimension
+                            if (actionPlanFilterDimension !== 'all') {
+                                if (actionPlanFilterDimension === 0 && q.hse_dimension_id) return false;
+                                if (actionPlanFilterDimension !== 0 && q.hse_dimension_id !== actionPlanFilterDimension) return false;
+                            }
+
+                            // Filter by Search Text
+                            if (actionPlanSearch.trim()) {
+                                const term = actionPlanSearch.toLowerCase();
+                                const inLabel = q.label?.toLowerCase().includes(term);
+                                const inTitle = q.titulo_relatorio?.toLowerCase().includes(term);
+                                const inAction = q.plano_acao_item?.toLowerCase().includes(term);
+                                const inDim = q.hse_dimension_id ? hseDimensions.find(d => d.id === q.hse_dimension_id)?.name.toLowerCase().includes(term) : false;
+
+                                return inLabel || inTitle || inAction || inDim;
+                            }
+
+                            return true;
+                        }).map((q, idx) => (
+                            <div key={q.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-blue-300 transition-colors">
+                                <div className="flex items-start justify-between mb-4">
+                                    <div className="flex gap-3">
+                                        <span className="flex-shrink-0 w-6 h-6 flex items-center justify-center bg-slate-100 text-slate-600 font-bold rounded text-xs">
+                                            {idx + 1}
+                                        </span>
+                                        <div>
+                                            <p className="font-medium text-slate-800">{q.label}</p>
+                                            {q.hse_dimension_id && (
+                                                <span className="inline-block mt-1 px-2 py-0.5 bg-slate-100 text-slate-500 text-xs rounded-full">
+                                                    Dimensão: {hseDimensions.find(d => d.id === q.hse_dimension_id)?.name || 'N/A'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-9">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+                                            Titulo do plano de ação do item
+                                        </label>
+                                        <input
+                                            type="text"
+                                            defaultValue={q.titulo_relatorio || ''}
+                                            onBlur={(e) => handleSaveQuestionActionPlan(q.id, 'titulo_relatorio', e.target.value)}
+                                            placeholder="Ex: Melhoria na Comunicação"
+                                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+                                            Plano de ação
+                                        </label>
+                                        <textarea
+                                            defaultValue={q.plano_acao_item || ''}
+                                            onBlur={(e) => handleSaveQuestionActionPlan(q.id, 'plano_acao_item', e.target.value)}
+                                            placeholder="Descreva a ação sugerida..."
+                                            rows={2}
+                                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
         return (
             <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <header className="mb-8">
-                    <div className="flex items-center gap-4 mb-6">
-                        <Button variant="outline" onClick={() => setViewMode('list')} className="px-3">
-                            <ChevronUp className="rotate-[-90deg]" size={20} />
+                <header className="mb-0">
+                    {/* Nível 1: Cabeçalho de Contexto */}
+                    <div className="flex items-center gap-6">
+                        <Button
+                            variant="ghost"
+                            onClick={() => setViewMode('list')}
+                            className="text-slate-500 hover:text-slate-700 p-0 hover:bg-transparent"
+                        >
+                            <ArrowLeft size={20} />
                             Voltar
                         </Button>
                         <div>
-                            <h1 className="text-2xl font-bold text-slate-800">Relatório: {analyticsForm.title}</h1>
-
+                            <h1 className="text-2xl font-bold flex flex-wrap items-baseline gap-x-2">
+                                <span className="text-slate-900">{analyticsForm.title}</span>
+                                <span className="text-slate-400 text-lg font-normal">Psicossocial</span>
+                            </h1>
                         </div>
                     </div>
 
-                    {/* Tabs */}
-                    <div className="flex p-1 bg-slate-100 rounded-xl w-fit">
-                        {/* Visão Geral Removed as per request */}
-                        <button
-                            onClick={() => setAnalyticsTab('individual')}
-                            className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${analyticsTab === 'individual' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                        >
-                            Visão Geral
-                        </button>
-                        <button
-                            onClick={() => setAnalyticsTab('diagnostic')}
-                            className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${analyticsTab === 'diagnostic' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                        >
-                            Diagnóstico por dimensões
-                        </button>
-                        <button
-                            onClick={() => setAnalyticsTab('interpretative')}
-                            className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${analyticsTab === 'interpretative' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                        >
-                            Análise Interpretativa
-                        </button>
+                    {/* Nível 2: Barra de Ferramentas */}
+                    <div className="flex justify-between items-center mt-8">
+                        {/* Segmented Control */}
+                        <div className="flex p-1 bg-slate-100/80 rounded-xl w-fit border border-slate-200/50">
+                            <button
+                                onClick={() => setAnalyticsTab('individual')}
+                                className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${analyticsTab === 'individual'
+                                    ? 'bg-white text-slate-900 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+                                    }`}
+                            >
+                                Visão Geral
+                            </button>
+                            <button
+                                onClick={() => setAnalyticsTab('diagnostic')}
+                                className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${analyticsTab === 'diagnostic'
+                                    ? 'bg-white text-slate-900 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+                                    }`}
+                            >
+                                Diagnóstico por dimensões
+                            </button>
+                            <button
+                                onClick={() => setAnalyticsTab('interpretative')}
+                                className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${analyticsTab === 'interpretative'
+                                    ? 'bg-white text-slate-900 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+                                    }`}
+                            >
+                                Análise Interpretativa
+                            </button>
+                            <button
+                                onClick={() => setAnalyticsTab('action_plan')}
+                                className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${analyticsTab === 'action_plan'
+                                    ? 'bg-white text-slate-900 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+                                    }`}
+                            >
+                                Planos de ação
+                            </button>
+                        </div>
 
+                        {/* Ação Global */}
+                        <Button
+                            onClick={() => setIsReportModalOpen(true)}
+                            className="bg-[#139690] hover:bg-[#118580] text-white rounded-lg shadow-sm px-6 py-2.5 transition-all text-sm font-medium border-0"
+                        >
+                            Visualizar Relatório HSE
+                        </Button>
                     </div>
                 </header>
 
-                {
-                    loadingStats ? (
-                        <div className="flex-1 flex justify-center items-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>
-                    ) : (
-                        <div className="flex-1 relative overflow-hidden">
-                            <div id="report-scroll-container" className="h-full overflow-y-auto pb-20 px-1">
-                                {analyticsTab === 'overview' ? renderOverview() :
-                                    analyticsTab === 'individual' ? renderIndividual() :
-                                        analyticsTab === 'diagnostic' ? renderDiagnostic() :
-                                            renderInterpretative()
-                                }
+                <div className="mt-8">
+
+                    {
+                        loadingStats ? (
+                            <div className="flex-1 flex justify-center items-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>
+                        ) : (
+                            <div className="flex-1 relative overflow-hidden">
+                                <div id="report-scroll-container" className="h-full overflow-y-auto pb-20 px-1">
+                                    {analyticsTab === 'overview' ? renderOverview() :
+                                        analyticsTab === 'individual' ? renderIndividual() :
+                                            analyticsTab === 'diagnostic' ? renderDiagnostic() :
+                                                analyticsTab === 'action_plan' ? renderActionPlan() :
+                                                    renderInterpretative()
+                                    }
+                                </div>
+                                <ScrollToTopButton />
                             </div>
-                            <ScrollToTopButton />
-                        </div>
-                    )
-                }
-            </div >
+                        )
+                    }
+                </div>
+            </div>
         );
     }
 
