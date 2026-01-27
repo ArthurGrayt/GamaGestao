@@ -4,8 +4,12 @@ import { getUTCStart, getUTCEnd } from '../utils/dateUtils';
 import { FilterContext } from '../layouts/MainLayout';
 import { KPICard } from '../components/KPICard';
 import { supabase } from '../services/supabase';
-import { X, Users, DollarSign, CheckCircle, Stethoscope, Building2, ArrowLeft, User } from 'lucide-react';
+import { X, Users, DollarSign, CheckCircle, Stethoscope, Building2, ArrowLeft, User, Activity } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { FinancialHealthQuadrant } from '../components/FinancialHealthQuadrant';
+import { OperationalEfficiencyQuadrant } from '../components/OperationalEfficiencyQuadrant';
+import { ExpansionAcademyQuadrant } from '../components/ExpansionAcademyQuadrant';
+import { ClimateQualityQuadrant } from '../components/ClimateQualityQuadrant';
 
 export const Dashboard: React.FC = () => {
   const filter = useContext(FilterContext);
@@ -341,8 +345,8 @@ export const Dashboard: React.FC = () => {
                   contentStyle={{ backgroundColor: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(8px)', borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
                   formatter={(value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)}
                 />
+                <Bar dataKey="Anterior" name="Anterior" fill="#94a3b8" radius={[4, 4, 4, 4]} />
                 <Bar dataKey="Atual" name="Atual" fill="#3b82f6" radius={[4, 4, 4, 4]} />
-                <Bar dataKey="Anterior" name="Anterior" fill="#e2e8f0" radius={[4, 4, 4, 4]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -364,8 +368,8 @@ export const Dashboard: React.FC = () => {
                   cursor={{ fill: 'rgba(0,0,0,0.02)' }}
                   contentStyle={{ backgroundColor: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(8px)', borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
                 />
+                <Bar dataKey="Anterior" name="Anterior" fill="#94a3b8" radius={[4, 4, 4, 4]} />
                 <Bar dataKey="Atual" name="Atual" fill="#a855f7" radius={[4, 4, 4, 4]} />
-                <Bar dataKey="Anterior" name="Anterior" fill="#e2e8f0" radius={[4, 4, 4, 4]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -387,12 +391,19 @@ export const Dashboard: React.FC = () => {
                   cursor={{ fill: 'rgba(0,0,0,0.02)' }}
                   contentStyle={{ backgroundColor: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(8px)', borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
                 />
+                <Bar dataKey="Anterior" name="Anterior" fill="#94a3b8" radius={[4, 4, 4, 4]} />
                 <Bar dataKey="Atual" name="Atual" fill="#ec4899" radius={[4, 4, 4, 4]} />
-                <Bar dataKey="Anterior" name="Anterior" fill="#e2e8f0" radius={[4, 4, 4, 4]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <FinancialHealthQuadrant />
+        <OperationalEfficiencyQuadrant />
+        <ExpansionAcademyQuadrant />
+        <ClimateQualityQuadrant />
       </div>
     </div>
   );

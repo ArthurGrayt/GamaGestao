@@ -317,18 +317,18 @@ export const Saude: React.FC = () => {
                                 Atual:
                               </span>
                               <div className="text-right">
-                                <span className="text-slate-700 font-bold block">{payload[0].value} pacientes</span>
-                                <span className="text-slate-500 block">{formatCurrency(payload[0].payload.valorAtual)}</span>
+                                <span className="text-slate-700 font-bold block">{payload[1].value} pacientes</span>
+                                <span className="text-slate-500 block">{formatCurrency(payload[1].payload.valorAtual)}</span>
                               </div>
                             </div>
                             <div className="flex justify-between items-center gap-4">
                               <span className="text-slate-400 font-bold flex items-center gap-1.5">
-                                <div className="w-2 h-2 rounded-full bg-slate-300"></div>
+                                <div className="w-2 h-2 rounded-full bg-slate-400"></div>
                                 Anterior:
                               </span>
                               <div className="text-right">
-                                <span className="text-slate-500 font-bold block">{payload[1].value} pacientes</span>
-                                <span className="text-slate-400 block">{formatCurrency(payload[1].payload.valorAnterior)}</span>
+                                <span className="text-slate-500 font-bold block">{payload[0].value} pacientes</span>
+                                <span className="text-slate-400 block">{formatCurrency(payload[0].payload.valorAnterior)}</span>
                               </div>
                             </div>
                           </div>
@@ -338,8 +338,8 @@ export const Saude: React.FC = () => {
                     return null;
                   }}
                 />
+                <Bar dataKey="Anterior" fill="#94a3b8" radius={[8, 8, 8, 8]} />
                 <Bar dataKey="Atual" fill="#10b981" radius={[8, 8, 8, 8]} />
-                <Bar dataKey="Anterior" fill="#e2e8f0" radius={[8, 8, 8, 8]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -382,7 +382,7 @@ export const Saude: React.FC = () => {
                   />
                   <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={24}>
                     {peakData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={index === 0 ? '#f59e0b' : '#cbd5e1'} />
+                      <Cell key={`cell-${index}`} fill={index === 0 ? '#f59e0b' : '#94a3b8'} />
                     ))}
                   </Bar>
                 </BarChart>
