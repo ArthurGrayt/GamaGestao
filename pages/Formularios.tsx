@@ -2081,7 +2081,9 @@ export const Formularios: React.FC = () => {
                                 </table>
                             </div>
                         )}
+
                     </div>
+
 
                     {/* HSE Report Modal */}
                     <Modal
@@ -2793,7 +2795,7 @@ export const Formularios: React.FC = () => {
                             </Modal>
                         )}
                     </Modal>
-                </div>
+                </div >
             );
         };
 
@@ -3510,73 +3512,85 @@ export const Formularios: React.FC = () => {
         return (
             <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <header className="mb-0">
-                    {/* Nível 1: Cabeçalho de Contexto */}
-                    <div className="flex items-center gap-6">
-                        <Button
-                            variant="ghost"
-                            onClick={() => setViewMode('list')}
-                            className="text-slate-500 hover:text-slate-700 p-0 hover:bg-transparent"
-                        >
-                            <ArrowLeft size={20} />
-                            Voltar
-                        </Button>
-                        <div>
-                            <h1 className="text-2xl font-bold flex flex-wrap items-baseline gap-x-2">
-                                <span className="text-slate-900">{analyticsForm.title}</span>
-                                <span className="text-slate-400 text-lg font-normal">Psicossocial</span>
-                            </h1>
-                        </div>
-                    </div>
-
-                    {/* Nível 2: Barra de Ferramentas */}
-                    <div className="flex justify-between items-center mt-8">
-                        {/* Segmented Control */}
-                        <div className="flex p-1 bg-slate-100/80 rounded-xl w-fit border border-slate-200/50">
-                            <button
-                                onClick={() => setAnalyticsTab('individual')}
-                                className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${analyticsTab === 'individual'
-                                    ? 'bg-white text-slate-900 shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
-                                    }`}
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        {/* Nível 1: Cabeçalho de Contexto */}
+                        <div className="flex items-center gap-6">
+                            <Button
+                                variant="ghost"
+                                onClick={() => setViewMode('list')}
+                                className="text-slate-500 hover:text-slate-700 p-0 hover:bg-transparent"
                             >
-                                Visão Geral
-                            </button>
-                            <button
-                                onClick={() => setAnalyticsTab('diagnostic')}
-                                className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${analyticsTab === 'diagnostic'
-                                    ? 'bg-white text-slate-900 shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
-                                    }`}
-                            >
-                                Diagnóstico por dimensões
-                            </button>
-                            <button
-                                onClick={() => setAnalyticsTab('interpretative')}
-                                className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${analyticsTab === 'interpretative'
-                                    ? 'bg-white text-slate-900 shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
-                                    }`}
-                            >
-                                Análise Interpretativa
-                            </button>
-                            <button
-                                onClick={() => setAnalyticsTab('action_plan')}
-                                className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${analyticsTab === 'action_plan'
-                                    ? 'bg-white text-slate-900 shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
-                                    }`}
-                            >
-                                Planos de ação
-                            </button>
+                                <ArrowLeft size={20} />
+                                Voltar
+                            </Button>
+                            <div>
+                                <h1 className="text-2xl font-bold flex flex-wrap items-baseline gap-x-2">
+                                    <span className="text-slate-900">{analyticsForm.title}</span>
+                                    {analyticsForm.empresa && (
+                                        <span className="text-slate-400 text-lg font-normal">
+                                            {analyticsForm.empresa}
+                                        </span>
+                                    )}
+                                </h1>
+                            </div>
                         </div>
 
-                        {/* Ação Global */}
-                        <Button
-                            onClick={() => setIsReportModalOpen(true)}
-                            className="bg-[#139690] hover:bg-[#118580] text-white rounded-lg shadow-sm px-6 py-2.5 transition-all text-sm font-medium border-0"
-                        >
-                            Visualizar Relatório HSE
-                        </Button>
+                        {/* Nível 2: Barra de Ferramentas */}
+                        <div className="flex justify-between items-center mt-8">
+                            {/* Segmented Control */}
+                            <div className="flex p-1 bg-slate-100/80 rounded-xl w-fit border border-slate-200/50">
+                                <button
+                                    onClick={() => setAnalyticsTab('individual')}
+                                    className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${analyticsTab === 'individual'
+                                        ? 'bg-white text-slate-900 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+                                        }`}
+                                >
+                                    Visão Geral
+                                </button>
+                                <button
+                                    onClick={() => setAnalyticsTab('diagnostic')}
+                                    className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${analyticsTab === 'diagnostic'
+                                        ? 'bg-white text-slate-900 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+                                        }`}
+                                >
+                                    Diagnóstico por dimensões
+                                </button>
+                                <button
+                                    onClick={() => setAnalyticsTab('interpretative')}
+                                    className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${analyticsTab === 'interpretative'
+                                        ? 'bg-white text-slate-900 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+                                        }`}
+                                >
+                                    Análise Interpretativa
+                                </button>
+                                <button
+                                    onClick={() => setAnalyticsTab('action_plan')}
+                                    className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${analyticsTab === 'action_plan'
+                                        ? 'bg-white text-slate-900 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+                                        }`}
+                                >
+                                    Planos de ação
+                                </button>
+                            </div>
+
+                            {/* Ações Globais */}
+                            <div className="flex items-center gap-3 -mr-4 sm:-mr-6 lg:-mr-8">
+
+                                {analyticsTab === 'individual' && (
+                                    <Button
+                                        onClick={() => setIsReportModalOpen(true)}
+                                        className="bg-[#139690] hover:bg-[#118580] text-white rounded-lg shadow-sm px-6 py-2.5 transition-all text-sm font-medium border-0 h-10"
+                                    >
+                                        <FileText size={18} className="mr-2" />
+                                        Visualizar Relatório HSE
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </header>
 
