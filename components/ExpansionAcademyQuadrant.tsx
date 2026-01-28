@@ -96,30 +96,30 @@ export const ExpansionAcademyQuadrant: React.FC = () => {
                 </div>
 
                 {/* MRR / Faturamento Recorrente */}
-                <div className="p-5 rounded-2xl bg-slate-900 text-white shadow-xl shadow-slate-200 transition-all hover:scale-[1.02] group/mrr">
+                <div className="p-5 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100/50 shadow-md shadow-slate-200/50 transition-all hover:scale-[1.02] group/mrr">
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
-                            <BarChart3 size={18} className="text-blue-400" />
-                            <p className="text-xs font-semibold uppercase tracking-wider opacity-60">Faturamento Recorrente (MRR)</p>
+                            <BarChart3 size={18} className="text-blue-600" />
+                            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Faturamento Recorrente (MBR)</p>
                         </div>
-                        <TrendingUp size={16} className="text-green-400" />
+                        <TrendingUp size={16} className="text-green-600" />
                     </div>
 
                     <div className="mb-4">
-                        <p className="text-3xl font-black">{formatCurrency(mrrAtual)}</p>
-                        <p className="text-[10px] opacity-50 mt-1 uppercase tracking-tighter font-medium">
+                        <p className="text-3xl font-black text-slate-800">{formatCurrency(mrrAtual)}</p>
+                        <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-tighter font-medium">
                             Foco Anual: {formatCurrency(mrrMetaAnual)}
                         </p>
                     </div>
 
                     <div className="space-y-1.5">
-                        <div className="flex justify-between text-[9px] font-bold uppercase tracking-widest opacity-40">
+                        <div className="flex justify-between text-[9px] font-bold uppercase tracking-widest text-slate-400">
                             <span>Progresso Meta</span>
-                            <span>{progressoMetaMRR.toFixed(1)}%</span>
+                            <span className="text-slate-600">{progressoMetaMRR.toFixed(1)}%</span>
                         </div>
-                        <div className="w-full bg-white/10 rounded-full h-1 overflow-hidden">
+                        <div className="w-full bg-slate-200 rounded-full h-1 overflow-hidden">
                             <div
-                                className="h-full bg-blue-400 rounded-full transition-all duration-1000"
+                                className="h-full bg-blue-600 rounded-full transition-all duration-1000"
                                 style={{ width: `${progressoMetaMRR}%` }}
                             ></div>
                         </div>

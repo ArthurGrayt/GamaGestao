@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Wallet, Stethoscope, Briefcase, ClipboardList, LogOut, Building2, MessageSquare, Users, ShieldCheck, FileText } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { useNotifications } from '../contexts/NotificationContext';
+import { SystemStatus } from './SystemStatus';
 
 
 interface SidebarProps {
@@ -80,7 +81,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ isExpanded, onMouseEnter, onMo
         ))}
       </nav>
 
-      <div className="p-6">
+      <div className="p-6 space-y-4">
+        {/* System Status */}
+        <div className="flex items-center justify-center px-4 transition-all duration-300">
+          <div className="flex items-center gap-3">
+            <SystemStatus isExpanded={isExpanded} />
+            <span className={`text-sm font-medium text-slate-500 whitespace-nowrap transition-all duration-300 ${isExpanded ? 'opacity-100 w-auto' : 'opacity-0 w-0 overflow-hidden'}`}>Sistema</span>
+          </div>
+        </div>
+
         <button
           onClick={handleLogout}
           className="flex items-center space-x-3 text-slate-400 hover:text-red-500 hover:bg-red-50 w-full px-4 py-3 rounded-2xl transition-all duration-300"

@@ -44,12 +44,8 @@ export const MainLayout: React.FC = () => {
 
         if (error) {
           console.error('Error fetching user role:', error);
-          // If error fetching role, we might want to deny access or handle gracefully
-          // For security, default to deny if we can't verify
           setAuthorized(false);
         } else {
-          // Check if role is >= 5
-          // Ensure role is treated as number
           const roleValue = Number(userProfile?.role);
           if (!isNaN(roleValue) && roleValue >= 5) {
             setAuthorized(true);
@@ -77,7 +73,6 @@ export const MainLayout: React.FC = () => {
   }, [navigate]);
 
   useEffect(() => {
-    // Recalculate range whenever type or selected specific date changes
     setFilterState(calculateDateRange(dateRangeType, selectedDate));
   }, [dateRangeType, selectedDate]);
 

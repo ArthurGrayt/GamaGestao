@@ -224,22 +224,7 @@ export const ClimateQualityQuadrant: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Disponibilidade do Sistema */}
-                    <div className="p-4 rounded-2xl bg-slate-900 text-white flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-white/10 rounded-lg text-blue-400">
-                                <Server size={18} />
-                            </div>
-                            <div>
-                                <p className="text-[10px] uppercase font-bold tracking-widest opacity-50">Status do Sistema</p>
-                                <p className="text-sm font-bold">100% Operacional</p>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/20">
-                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                            <span className="text-[10px] font-black uppercase">Online</span>
-                        </div>
-                    </div>
+
 
                     {/* Semáforo de Satisfação */}
                     <div className="flex-1 flex flex-col justify-center items-center py-4 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">

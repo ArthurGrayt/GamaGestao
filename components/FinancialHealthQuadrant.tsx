@@ -154,9 +154,10 @@ export const FinancialHealthQuadrant: React.FC = () => {
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-all hover:shadow-md">
                     <div className="flex justify-between items-start mb-3">
                         <div>
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Bruto x Recebido (Inadimplência)</p>
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Desempenho (Recebido / Faturamento)</p>
                             <p className="text-lg font-bold text-slate-800">
-                                {formatCurrency(stats.faturamentoRecebido)} <span className="text-sm font-normal text-slate-400">/ {formatCurrency(stats.faturamentoBruto)}</span>
+                                <span className="text-green-600">{formatCurrency(stats.faturamentoRecebido)}</span>
+                                <span className="text-black/60"> / {formatCurrency(stats.faturamentoBruto)}</span>
                             </p>
                         </div>
                         <div className={`px-2 py-1 rounded-lg text-xs font-bold ${gapInadimplencia > 10 ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>

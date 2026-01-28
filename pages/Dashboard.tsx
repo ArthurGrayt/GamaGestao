@@ -194,7 +194,7 @@ export const Dashboard: React.FC = () => {
     <div className="space-y-8">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <KPICard
-          title="Faturamento (Real)"
+          title="Faturamento (Bruto)"
           value={stats.revenue.current}
           prevValue={stats.revenue.prev}
           isCurrency
