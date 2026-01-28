@@ -8,12 +8,13 @@ export const FinancialHealthQuadrant: React.FC = () => {
     const filter = useContext(FilterContext);
     const [loading, setLoading] = useState(true);
     const [stats, setStats] = useState({
-        retencao: 0,
         faturamentoBruto: 0,
-        faturamentoRecebido: 0,
+        faturamentoRecebido: 0, // This will be "Paid portion of the projected billing"
+        faturamentoLiquido: 0,
         prazoMedio: 0,
         recuperacaoPassivo: 0,
-        ticketMedio: 0
+        ticketMedio: 0,
+        totalDespesas: 0
     });
 
     useEffect(() => {
@@ -23,67 +24,76 @@ export const FinancialHealthQuadrant: React.FC = () => {
                 const startDate = getUTCStart(filter.startDate);
                 const endDate = getUTCEnd(filter.endDate);
 
-                // 1. Retention (Receitas - Despesas)
-                const { data: receitas } = await supabase
+                // 1. Faturamento Bruto (All values projected for THIS period)
+                // We use data_projetada to define the "billing of the month"
+                const { data: receitasProjetadas_Raw } = await supabase
                     .from('financeiro_receitas')
                     .select('valor_total, data_executada, data_projetada, contratante')
+                    .gte('data_projetada', startDate)
+                    .lt('data_projetada', endDate);
+
+                const faturamentoBruto = receitasProjetadas_Raw?.reduce((acc, r) => acc + (Number(r.valor_total) || 0), 0) || 0;
+
+                // 2. Faturamento Recebido (The portion of that billing THAT IS PAID)
+                // This is the core fix: compare what was billed this month vs what was paid OF THIS MONTH'S billing
+                const faturamentoRecebido_BillingBased = receitasProjetadas_Raw?.reduce((acc, r) => {
+                    return acc + (r.data_executada ? (Number(r.valor_total) || 0) : 0);
+                }, 0) || 0;
+
+                // 3. Total Despesas (All values projected for THIS period)
+                const { data: despesasProjetadas } = await supabase
+                    .from('financeiro_despesas')
+                    .select('valor')
+                    .gte('data_projetada', startDate)
+                    .lt('data_projetada', endDate);
+
+                const totalDespesas = despesasProjetadas?.reduce((acc, d) => acc + (Number(d.valor) || 0), 0) || 0;
+
+                // 4. Faturamento Líquido (Formula: Bruto - Total Despesas)
+                const faturamentoLiquido = faturamentoBruto - totalDespesas;
+
+                // 5. Cash Flow Data (Actually paid receipts IN THE PERIOD, regardless of when they were due)
+                // Needed for Recuperação de Passivo and Prazo Médio
+                const { data: receitasExecutadasNoPeriodo } = await supabase
+                    .from('financeiro_receitas')
+                    .select('valor_total, data_projetada, data_executada')
                     .gte('data_executada', startDate)
                     .lt('data_executada', endDate);
 
-                const { data: despesas } = await supabase
-                    .from('financeiro_despesas')
-                    .select('valor, data_projetada, data_executada')
-                    .gte('data_projetada', startDate)
-                    .lt('data_projetada', endDate);
-
-                const totalReceita = receitas?.reduce((acc, r) => acc + (Number(r.valor_total) || 0), 0) || 0;
-                const totalDespesa = despesas?.reduce((acc, d) => acc + (Number(d.valor) || 0), 0) || 0;
-                const retencao = totalReceita - totalDespesa;
-
-                // 2. Faturamento Bruto X Recebido
-                // Bruto: based on data_projetada (expected)
-                // Recebido: based on data_executada (actual)
-                const { data: receitasBruto } = await supabase
-                    .from('financeiro_receitas')
-                    .select('valor_total')
-                    .gte('data_projetada', startDate)
-                    .lt('data_projetada', endDate);
-
-                const faturamentoBruto = receitasBruto?.reduce((acc, r) => acc + (Number(r.valor_total) || 0), 0) || 0;
-                const faturamentoRecebido = totalReceita; // Already filtered by data_executada in step 1
-
-                // 3. Prazo Médio de Recebimento
-                // Using financeiro_despesas as requested (data_executada - data_projetada)
-                const despesasComPagamento = despesas?.filter(d => d.data_executada && d.data_projetada) || [];
-                let totalDias = 0;
-                despesasComPagamento.forEach(d => {
-                    const diff = new Date(d.data_executada).getTime() - new Date(d.data_projetada).getTime();
-                    totalDias += Math.max(0, diff / (1000 * 60 * 60 * 24));
+                // 6. Prazo Médio de Recebimento (Average performance of payments entering now)
+                const paidReceitas = receitasExecutadasNoPeriodo?.filter(r => r.data_executada && r.data_projetada) || [];
+                let totalDiasRecebimento = 0;
+                paidReceitas.forEach(r => {
+                    const diff = new Date(r.data_executada).getTime() - new Date(r.data_projetada).getTime();
+                    totalDiasRecebimento += Math.max(0, diff / (1000 * 60 * 60 * 24));
                 });
-                const prazoMedio = despesasComPagamento.length > 0 ? totalDias / despesasComPagamento.length : 0;
+                const prazoMedio = paidReceitas.length > 0 ? totalDiasRecebimento / paidReceitas.length : 0;
 
-                // 4. Recuperação de Passivo
-                // Receitas in current month where debt was overdue by > 30 days (expected date < current month start - 30 days)
-                const thirtyDaysAgo = new Date(filter.startDate);
-                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-                const thirtyDaysAgoISO = getUTCStart(thirtyDaysAgo);
+                // 7. Recuperação de Passivo
+                // Paid in current period but billed > 30 days before period start
+                const startOfCurrentPeriod = new Date(filter.startDate);
+                const thirtyDaysBeforeStart = new Date(startOfCurrentPeriod);
+                thirtyDaysBeforeStart.setDate(thirtyDaysBeforeStart.getDate() - 30);
+                const thirtyDaysBeforeISO = getUTCStart(thirtyDaysBeforeStart);
 
-                const recuperacaoPassivo = receitas?.filter(r => {
+                const recuperacaoPassivo = receitasExecutadasNoPeriodo?.filter(r => {
                     if (!r.data_projetada) return false;
-                    return r.data_projetada < thirtyDaysAgoISO;
+                    return r.data_projetada < thirtyDaysBeforeISO;
                 }).reduce((acc, r) => acc + (Number(r.valor_total) || 0), 0) || 0;
 
-                // 5. Ticket Médio
-                const uniqueClients = new Set(receitas?.map(r => r.contratante).filter(Boolean));
-                const ticketMedio = uniqueClients.size > 0 ? totalReceita / uniqueClients.size : 0;
+                // 8. Ticket Médio (Bruto / Unique clients in projects)
+                const uniqueClients = new Set(receitasProjetadas_Raw?.map(r => r.contratante).filter(Boolean));
+                const totalClients = uniqueClients.size || 1;
+                const ticketMedio = faturamentoBruto / totalClients;
 
                 setStats({
-                    retencao,
                     faturamentoBruto,
-                    faturamentoRecebido,
+                    faturamentoRecebido: faturamentoRecebido_BillingBased,
+                    faturamentoLiquido,
                     prazoMedio,
                     recuperacaoPassivo,
-                    ticketMedio
+                    ticketMedio,
+                    totalDespesas
                 });
 
             } catch (err) {
@@ -121,26 +131,30 @@ export const FinancialHealthQuadrant: React.FC = () => {
             </h3>
 
             <div className="space-y-6">
-                {/* Retenção de Valor */}
+                {/* Faturamento Líquido (Ex-Retenção) */}
                 <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-all hover:shadow-md">
                     <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-full ${stats.retencao >= 0 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                            {stats.retencao >= 0 ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
+                        <div className={`p-2 rounded-full ${stats.faturamentoLiquido >= 0 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                            {stats.faturamentoLiquido >= 0 ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
                         </div>
                         <div>
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Retenção de Valor</p>
-                            <p className={`text-lg font-bold ${stats.retencao >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {formatCurrency(stats.retencao)}
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Faturamento Líquido (Resultado)</p>
+                            <p className={`text-lg font-bold ${stats.faturamentoLiquido >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {formatCurrency(stats.faturamentoLiquido)}
                             </p>
                         </div>
                     </div>
+                    <div className="text-right">
+                        <p className="text-[10px] text-slate-400 uppercase font-medium">Investimento</p>
+                        <p className="text-sm font-semibold text-slate-600">-{formatCurrency(stats.totalDespesas)}</p>
+                    </div>
                 </div>
 
-                {/* GAP de Inadimplência */}
+                {/* Faturamento Bruto x Recebido & GAP */}
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-all hover:shadow-md">
                     <div className="flex justify-between items-start mb-3">
                         <div>
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Faturamento (Bruto x Recebido)</p>
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Bruto x Recebido (Inadimplência)</p>
                             <p className="text-lg font-bold text-slate-800">
                                 {formatCurrency(stats.faturamentoRecebido)} <span className="text-sm font-normal text-slate-400">/ {formatCurrency(stats.faturamentoBruto)}</span>
                             </p>
@@ -156,6 +170,7 @@ export const FinancialHealthQuadrant: React.FC = () => {
                         ></div>
                     </div>
                 </div>
+
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {/* Prazo Médio */}
@@ -181,11 +196,12 @@ export const FinancialHealthQuadrant: React.FC = () => {
                 <div className="p-4 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-200 transition-all hover:scale-[1.02]">
                     <div className="flex items-center gap-3 mb-1">
                         <Ticket size={18} />
-                        <p className="text-xs font-semibold uppercase tracking-wider opacity-80">Ticket Médio p/ Cliente</p>
+                        <p className="text-xs font-semibold uppercase tracking-wider opacity-80">Ticket Médio p/ Cliente (Bruto)</p>
                     </div>
                     <p className="text-2xl font-bold">{formatCurrency(stats.ticketMedio)}</p>
                 </div>
             </div>
         </div>
+
     );
 };
