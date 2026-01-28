@@ -504,8 +504,10 @@ export const Formularios: React.FC = () => {
     // Association State
     const [companies, setCompanies] = useState<any[]>([]); // Clientes
     const [units, setUnits] = useState<any[]>([]); // Unidades
-    const [sectors, setSectors] = useState<any[]>([]); // Setores
+    const [sectors, setSectors] = useState<any[]>([]); // Setores (All)
+    const [availableSectors, setAvailableSectors] = useState<any[]>([]); // Setores (Filtered by Unit)
     const [colabsCount, setColabsCount] = useState<number>(0);
+    const [targetColabsCount, setTargetColabsCount] = useState<number | null>(null);
     const [requireSector, setRequireSector] = useState(false);
 
     // HSE Config State
@@ -763,6 +765,7 @@ export const Formularios: React.FC = () => {
             if (!editingForm?.empresa) {
                 setUnits([]);
                 setColabsCount(0);
+                setTargetColabsCount(null);
                 return;
             }
 
@@ -801,6 +804,69 @@ export const Formularios: React.FC = () => {
             loadCompanyData();
         }
     }, [editingForm?.empresa]);
+
+    // Update Available Sectors when Unidade Changes
+    useEffect(() => {
+        const loadUnitSectors = async () => {
+            if (!editingForm?.unidade_id) {
+                setAvailableSectors([]);
+                return;
+            }
+
+            try {
+                // Fetch relation from unidade_setor
+                const { data: relData, error } = await supabase
+                    .from('unidade_setor')
+                    .select('setor')
+                    .eq('unidade', editingForm.unidade_id);
+
+                if (error) throw error;
+
+                if (relData && relData.length > 0) {
+                    const allowedSectorIds = relData.map(r => r.setor);
+                    // Filter the main sectors list
+                    const filtered = sectors.filter(s => allowedSectorIds.includes(s.id));
+                    setAvailableSectors(filtered);
+                } else {
+                    setAvailableSectors([]);
+                }
+            } catch (err) {
+                console.error("Error fetching unit sectors:", err);
+                setAvailableSectors([]);
+            }
+        };
+
+        loadUnitSectors();
+    }, [editingForm?.unidade_id, sectors]);
+
+
+
+    // Update Target Colabs Count when Sector Changes
+    useEffect(() => {
+        const updateTargetCount = async () => {
+            if (!editingForm?.setor || !editingForm?.unidade_id) {
+                setTargetColabsCount(null);
+                return;
+            }
+
+            try {
+                // Count collaborators in this specific sector
+                // Using 'setorid' logic as requested
+                // editingForm.setor should now be the ID from the 'setor' table
+                const { count, error } = await supabase
+                    .from('colaboradores')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('unidade', editingForm.unidade_id)
+                    .eq('setorid', editingForm.setor);
+
+                if (error) throw error;
+                setTargetColabsCount(count);
+            } catch (err) {
+                console.error("Error counting sector collaborators:", err);
+            }
+        };
+        updateTargetCount();
+    }, [editingForm?.setor, editingForm?.unidade_id, availableSectors, sectors]);
 
     // Update Title/Slug when Sector Changes (if required)
     // "ao selecionar um setor ele deve constar no link do formulario e no nome dele"
@@ -1148,7 +1214,9 @@ export const Formularios: React.FC = () => {
             .order('created_at', { ascending: false });
 
         if (aData && aData.length > 0) {
-            setAnswers(aData);
+            let finalAnswers = aData;
+            let finalMeta: Record<string, { nome: string; setor: string; cargo: string }> = {};
+
             const userIds = [...new Set(aData.map((a: any) => a.respondedor).filter(Boolean))];
 
             if (userIds.length > 0) {
@@ -1161,15 +1229,32 @@ export const Formularios: React.FC = () => {
                 console.log('Metadata Users Data:', usersData, 'Error:', metaError);
 
                 if (usersData) {
-                    const meta: Record<string, { nome: string; setor: string; cargo: string }> = {};
-                    usersData.forEach((u: any) => {
+                    // Check if we need to filter by Sector (If form has a specific sector set)
+                    let validUsers = usersData;
+                    if (form.setor) {
+                        // Find sector name
+                        // We need access to sectors list. It is in scope.
+                        const targetSector = sectors.find(s => s.id === form.setor);
+                        if (targetSector) {
+                            const targetName = targetSector.nome;
+                            validUsers = usersData.filter((u: any) => u.setor === targetName);
+
+                            // If filtering, we must also filter the ANSWERS to valid users only
+                            const validUserIds = new Set(validUsers.map((u: any) => u.id));
+                            finalAnswers = aData.filter((a: any) => validUserIds.has(a.respondedor));
+                        }
+                    }
+
+                    validUsers.forEach((u: any) => {
                         // Handle nested cargo object if join works
                         const cargoName = u.cargos?.nome || (u.cargo ? `Cargo ${u.cargo}` : '-');
-                        meta[u.id] = { nome: u.nome, setor: u.setor || '-', cargo: cargoName };
+                        finalMeta[u.id] = { nome: u.nome, setor: u.setor || '-', cargo: cargoName };
                     });
-                    setRespondentMetadata(meta);
                 }
             }
+
+            setAnswers(finalAnswers);
+            setRespondentMetadata(finalMeta);
         } else {
             setAnswers([]);
         }
@@ -1326,13 +1411,24 @@ export const Formularios: React.FC = () => {
 
 
                 if (!usersError && allUsers) {
-                    setCompanyUsers(allUsers);
-                    setTotalEmployees(allUsers.length);
+                    let filteredUsers = allUsers;
+
+                    // Filter Total Employees by Sector if form has one
+                    if (form.setor) {
+                        const targetSector = sectors.find(s => s.id === form.setor);
+                        if (targetSector) {
+                            const targetName = targetSector.nome;
+                            filteredUsers = allUsers.filter((u: any) => u.setor === targetName);
+                        }
+                    }
+
+                    setCompanyUsers(filteredUsers);
+                    setTotalEmployees(filteredUsers.length);
 
                     // 3. If > 20, calculate Sector Breakdown from full list
-                    if (allUsers.length > 20) {
+                    if (filteredUsers.length > 20) {
                         const stats: Record<string, number> = {};
-                        allUsers.forEach((u: any) => {
+                        filteredUsers.forEach((u: any) => {
                             const s = u.setor || 'Não Definido';
                             stats[s] = (stats[s] || 0) + 1;
                         });
@@ -3809,6 +3905,11 @@ export const Formularios: React.FC = () => {
                                 <div className="flex items-center gap-2 text-sm text-slate-500">
                                     <Users size={16} />
                                     <span>Total Colaboradores: <b>{colabsCount}</b></span>
+                                    {targetColabsCount !== null && (
+                                        <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded ml-2 text-xs font-bold">
+                                            No Setor: {targetColabsCount}
+                                        </span>
+                                    )}
                                     {colabsCount > 20 && <span className="text-amber-600 text-xs font-bold bg-amber-50 px-2 py-0.5 rounded ml-2">Setor Obrigatório</span>}
                                 </div>
                             )}
@@ -3841,7 +3942,7 @@ export const Formularios: React.FC = () => {
                                         }}
                                     >
                                         <option value="">Selecione um setor...</option>
-                                        {sectors.map(s => (
+                                        {(availableSectors.length > 0 ? availableSectors : sectors).map(s => (
                                             <option key={s.id} value={s.id}>{s.nome}</option>
                                         ))}
                                     </select>
