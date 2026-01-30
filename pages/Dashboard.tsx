@@ -11,6 +11,7 @@ import { OperationalEfficiencyQuadrant } from '../components/OperationalEfficien
 import { ExpansionAcademyQuadrant } from '../components/ExpansionAcademyQuadrant';
 import { ClimateQualityQuadrant } from '../components/ClimateQualityQuadrant';
 import { ManagementGoalsQuadrant } from '../components/ManagementGoalsQuadrant';
+
 import { IndividualGoalsQuadrant } from '../components/IndividualGoalsQuadrant';
 import { SupportTicketsQuadrant } from '../components/SupportTicketsQuadrant';
 

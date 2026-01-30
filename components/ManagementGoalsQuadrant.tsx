@@ -1,87 +1,102 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabase';
-import { FilterContext } from '../layouts/MainLayout';
+import { ShieldCheck, BarChart3, TrendingUp, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react';
 import { formatCurrency } from '../utils/dateUtils';
-import { ShieldCheck, BarChart3 } from 'lucide-react';
 
 interface Management {
-    id: string; // Assuming id exists, if not we'll use sigla or descricao as fallback
+    id: string;
+    sigla: string;
     descricao: string;
     porcentagem: number;
-    sigla: string;
+}
+
+interface ManagementPerformance extends Management {
+    target: number;
+    realized: number;
+    performance: number; // percentage
 }
 
 export const ManagementGoalsQuadrant: React.FC = () => {
-    const filter = useContext(FilterContext);
     const [loading, setLoading] = useState(true);
     const [metaReceita, setMetaReceita] = useState<number>(0);
-    const [managements, setManagements] = useState<Management[]>([]);
+    const [performances, setPerformances] = useState<ManagementPerformance[]>([]);
+    const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
     useEffect(() => {
-        const fetchInitialData = async () => {
+        const fetchData = async () => {
             setLoading(true);
             try {
-                // Fetch Meta
+                // 1. Fetch Total Company Goal
                 const { data: metaData } = await supabase
                     .from('gama_meta')
                     .select('meta_receita')
                     .maybeSingle();
 
-                if (metaData) {
-                    setMetaReceita(metaData.meta_receita || 0);
-                }
+                const totalGoal = metaData?.meta_receita || 0;
+                setMetaReceita(totalGoal);
 
-                // Fetch managements
-                const { data: mgmtData } = await supabase
+                // 2. Fetch Management Definitions
+                const { data: mgmts } = await supabase
                     .from('gerencias')
                     .select('*')
-                    .order('descricao', { ascending: true });
+                    .order('descricao');
 
-                if (mgmtData) {
-                    setManagements(mgmtData);
-                }
+                if (!mgmts) return;
+
+                // 3. Fetch Realized Revenue grouped by management
+                const { data: realizedData } = await supabase
+                    .from('gerencia_meta')
+                    .select('gerencia, faturamento');
+
+                // Process Data
+                const computedPerformances = mgmts.map((mgmt: Management) => {
+                    // Calculate Target for this management
+                    const target = totalGoal * (mgmt.porcentagem / 100);
+
+                    // Sum realized revenue for this management
+                    // Assuming 'gerencia' in gerencia_meta matches 'sigla' (or similar identifier) in gerencias
+                    // The user prompt implies matching logic. I will match by 'sigla' as it's a common identifier.
+                    // If 'gerencia' column stores the ID, logic differs. 
+                    // Given the prompt: "tabela 'gerencias' e colunas 'sigla' e 'descricao' (para pegar quais são as gerências)"
+                    // and "tabela 'gerencia_meta'... e 'gerencia' (para saber qual gerência fez a meta)"
+                    // I'll assume matching strictly by textual identifier is safer if IDs aren't explicit.
+                    // Let's try matching by 'sigla' first as it is unique and short.
+                    const realized = realizedData
+                        ?.filter((item: any) => item.gerencia === mgmt.sigla || item.gerencia === mgmt.id)
+                        .reduce((sum: number, item: any) => sum + (Number(item.faturamento) || 0), 0) || 0;
+
+                    const performance = target > 0 ? (realized / target) * 100 : 0;
+
+                    return {
+                        ...mgmt,
+                        target,
+                        realized,
+                        performance
+                    };
+                });
+
+                setPerformances(computedPerformances);
+
             } catch (err) {
-                console.error('Error fetching management goals:', err);
+                console.error('Error fetching management goals data:', err);
             } finally {
                 setLoading(false);
             }
         };
 
-        fetchInitialData();
+        fetchData();
 
-        // Subscribe to real-time changes
-        const metaChannel = supabase
-            .channel('public:gama_meta_realtime')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'gama_meta' }, (payload) => {
-                if (payload.new && 'meta_receita' in payload.new) {
-                    setMetaReceita(payload.new.meta_receita);
-                }
-            })
-            .subscribe();
-
-        const mgmtChannel = supabase
-            .channel('public:gerencias_realtime')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'gerencias' }, (payload) => {
-                const { eventType, new: newRecord, old: oldRecord } = payload;
-                if (eventType === 'INSERT') {
-                    setManagements(prev => [...prev, newRecord as Management].sort((a, b) => a.descricao.localeCompare(b.descricao)));
-                } else if (eventType === 'UPDATE') {
-                    setManagements(prev => prev.map(m =>
-                        (m.id && m.id === newRecord.id) || (m.sigla === newRecord.sigla)
-                            ? { ...m, ...newRecord }
-                            : m
-                    ));
-                } else if (eventType === 'DELETE') {
-                    setManagements(prev => prev.filter(m =>
-                        (m.id && m.id !== oldRecord.id) || (m.sigla !== oldRecord.sigla)
-                    ));
-                }
-            })
-            .subscribe();
+        // Realtime Subscription Setup
+        const channels = [
+            supabase.channel('meta-changes')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'gama_meta' }, fetchData)
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'gerencias' }, fetchData)
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'gerencia_meta' }, fetchData)
+                .subscribe()
+        ];
 
         return () => {
-            supabase.removeChannel(metaChannel);
-            supabase.removeChannel(mgmtChannel);
+            channels.forEach(ch => supabase.removeChannel(ch));
         };
     }, []);
 
@@ -90,8 +105,8 @@ export const ManagementGoalsQuadrant: React.FC = () => {
             <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-white/50 animate-pulse h-[450px]">
                 <div className="h-6 w-48 bg-slate-200 rounded mb-6"></div>
                 <div className="space-y-4">
-                    {[1, 2, 3, 4].map(i => (
-                        <div key={i} className="h-16 bg-slate-100 rounded-2xl"></div>
+                    {[1, 2, 3].map(i => (
+                        <div key={i} className="h-20 bg-slate-100 rounded-2xl"></div>
                     ))}
                 </div>
             </div>
@@ -100,66 +115,83 @@ export const ManagementGoalsQuadrant: React.FC = () => {
 
     return (
         <div className="bg-white/60 backdrop-blur-xl p-8 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[450px] flex flex-col">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+            <div className="flex items-center justify-between mb-8">
                 <div>
                     <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
                         <ShieldCheck size={24} className="text-blue-500" />
                         Metas de Gerência
                     </h3>
-                    <p className="text-xs text-slate-500 mt-1">Desempenho por gerência em tempo real</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                        Meta Global: <span className="font-bold text-slate-700">{formatCurrency(metaReceita)}</span>
+                    </p>
                 </div>
-                <div className="bg-blue-600 shadow-md shadow-blue-200 text-white px-4 py-2 rounded-2xl text-xs font-bold border border-blue-500/20 whitespace-nowrap">
-                    Meta: {formatCurrency(metaReceita)}
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                        className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-blue-500 transition-all flex items-center gap-1.5 border border-transparent hover:border-slate-200"
+                        title={sortOrder === 'desc' ? "Menor para maior" : "Maior para menor"}
+                    >
+                        {sortOrder === 'desc' ? <ArrowDownWideNarrow size={18} /> : <ArrowUpNarrowWide size={18} />}
+                        <span className="text-[10px] font-bold uppercase hidden sm:inline">
+                            {sortOrder === 'desc' ? "Menor" : "Maior"}
+                        </span>
+                    </button>
+                    <div className="p-2 bg-blue-50 text-blue-500 rounded-xl">
+                        <TrendingUp size={20} />
+                    </div>
                 </div>
             </div>
 
-            <div className="space-y-5 overflow-y-auto pr-2 custom-scrollbar flex-1">
-                {managements.map((mgmt, idx) => {
-                    const achievedValue = (mgmt.porcentagem / 100) * metaReceita;
-                    const colorGradients = [
-                        'from-blue-500 to-blue-600',
-                        'from-indigo-500 to-indigo-600',
-                        'from-purple-500 to-purple-600',
-                        'from-cyan-500 to-cyan-600',
-                        'from-teal-500 to-teal-600',
-                    ];
-                    const gradient = colorGradients[idx % colorGradients.length];
-
-                    return (
-                        <div key={mgmt.id || mgmt.sigla} className="bg-white/40 border border-white/60 p-4 rounded-2xl hover:bg-white/60 transition-all duration-300">
-                            <div className="flex justify-between items-start mb-3">
-                                <div className="flex gap-3">
-                                    <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center text-white font-bold text-xs shadow-lg shadow-blue-100`}>
-                                        {mgmt.sigla}
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-bold text-slate-700">{mgmt.descricao}</p>
-                                        <p className="text-[11px] text-slate-500 font-medium">
-                                            {formatCurrency(achievedValue)} realizados
-                                        </p>
-                                    </div>
-                                </div>
-                                <div className="text-right">
-                                    <div className="text-lg font-black text-slate-800 leading-none">{mgmt.porcentagem}%</div>
-                                    <p className="text-[9px] text-slate-400 font-bold uppercase mt-1 tracking-wider text-right">Atingido</p>
-                                </div>
-                            </div>
-
-                            <div className="relative h-2 w-full bg-slate-200/50 rounded-full overflow-hidden">
-                                <div
-                                    className={`absolute top-0 left-0 h-full bg-gradient-to-r ${gradient} rounded-full transition-all duration-1000 ease-out`}
-                                    style={{ width: `${Math.min(100, mgmt.porcentagem)}%` }}
-                                />
-                            </div>
-                        </div>
-                    );
-                })}
-
-                {managements.length === 0 && (
-                    <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-                        <BarChart3 size={48} className="opacity-10 mb-4" />
-                        <p className="text-sm font-medium">Nenhum dado de gerência disponível</p>
+            <div className="space-y-6 overflow-y-auto pr-2 custom-scrollbar flex-1">
+                {performances.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-50">
+                        <BarChart3 size={48} className="mb-2" />
+                        <p className="text-sm">Nenhuma gerência configurada</p>
                     </div>
+                ) : (
+                    [...performances]
+                        .sort((a, b) => sortOrder === 'desc' ? b.performance - a.performance : a.performance - b.performance)
+                        .map((mgmt) => (
+                            <div key={mgmt.sigla || mgmt.id} className="space-y-2">
+                                <div className="flex justify-between items-end">
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-sm font-bold text-slate-700">{mgmt.descricao}</span>
+                                            <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold">{mgmt.sigla}</span>
+                                        </div>
+                                        <div className="text-[11px] text-slate-400 font-medium">
+                                            {formatCurrency(mgmt.realized)} <span className="text-slate-300">/ {formatCurrency(mgmt.target)}</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className={`text-lg font-black ${mgmt.performance >= 100 ? 'text-emerald-500' : 'text-slate-800'}`}>
+                                            {mgmt.performance.toFixed(1)}%
+                                        </span>
+                                        <p className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">da meta</p>
+                                    </div>
+                                </div>
+
+                                <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden relative">
+                                    {/* Target Marker/Background if needed, but simple bar is enough for basic request */}
+                                    <div
+                                        className={`h-full rounded-full transition-all duration-1000 ease-out flex items-center justify-end pr-1
+                                        ${mgmt.performance >= 100
+                                                ? 'bg-gradient-to-r from-emerald-400 to-emerald-600 shadow-[0_0_10px_rgba(16,185,129,0.4)]'
+                                                : 'bg-gradient-to-r from-blue-500 to-blue-600'
+                                            }`}
+                                        style={{ width: `${Math.min(100, mgmt.performance)}%` }}
+                                    />
+                                </div>
+                                <div className="flex justify-between items-center text-[10px] text-slate-400 font-medium px-0.5">
+                                    <span>Contribuição esperada: {mgmt.porcentagem}%</span>
+                                    {mgmt.performance >= 100 && (
+                                        <span className="text-emerald-600 font-bold flex items-center gap-1">
+                                            Meta Batida! (+{(mgmt.performance - 100).toFixed(1)}% extra) 🎉
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        ))
                 )}
             </div>
 

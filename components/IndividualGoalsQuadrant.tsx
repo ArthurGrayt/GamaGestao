@@ -1,219 +1,211 @@
-import React, { useState } from 'react';
-import { User, Plus, Edit2, Trash2, ArrowLeft, Settings, Target, ChevronRight, Save, X } from 'lucide-react';
-import { formatCurrency } from '../utils/dateUtils';
+import React, { useEffect, useState, useRef } from 'react';
+import { supabase } from '../services/supabase';
+import { User, Plus, Edit2, Trash2, Target, ChevronRight, Save, X, CheckCircle2, Circle, RefreshCw } from 'lucide-react';
 
 interface IndividualGoal {
     id: string;
-    name: string;
-    goal: number;
-    current: number;
-    unit: string; // New field for generic units
+    collaborator: string;
+    objective: string;
+    targetValue?: number;
+    currentValue: number;
+    type: string;
+    isCompleted: boolean;
 }
 
 export const IndividualGoalsQuadrant: React.FC = () => {
-    const [mode, setMode] = useState<'view' | 'manage' | 'edit'>('view');
+    const [users, setUsers] = useState<string[]>([]);
     const [goals, setGoals] = useState<IndividualGoal[]>([
-        { id: '1', name: 'Colaborador Exemplo 1', goal: 50, current: 35, unit: 'Documentos' },
-        { id: '2', name: 'Colaborador Exemplo 2', goal: 100, current: 80, unit: 'Atendimentos' },
-        { id: '3', name: 'Colaborador Exemplo 3', goal: 20, current: 5, unit: 'Cafés' },
+        { id: '1', collaborator: 'Arthur', objective: 'Fazer café', currentValue: 0, type: 'Copa', isCompleted: false },
+        { id: '2', collaborator: 'Beatriz', objective: 'Realizar 50 atendimentos', targetValue: 50, currentValue: 35, type: 'Atendimento', isCompleted: false },
+        { id: '3', collaborator: 'Carlos', objective: 'Recuperar documentos pendentes', targetValue: 20, currentValue: 5, type: 'Documentação', isCompleted: false },
     ]);
     const [editingGoal, setEditingGoal] = useState<IndividualGoal | null>(null);
+    const [loadingUsers, setLoadingUsers] = useState(false);
+    const formRef = useRef<HTMLFormElement>(null);
 
-    const formatValue = (value: number, unit: string) => {
-        if (unit.toLowerCase() === 'r$' || unit.toLowerCase() === 'brl' || unit.toLowerCase() === 'reais') {
-            return formatCurrency(value);
-        }
-        return `${value} ${unit}`;
-    };
+    useEffect(() => {
+        const fetchUsers = async () => {
+            setLoadingUsers(true);
+            try {
+                const { data, error } = await supabase
+                    .from('users')
+                    .select('username')
+                    .order('username');
+
+                if (error) throw error;
+                if (data) {
+                    setUsers(data.map(u => u.username));
+                }
+            } catch (err) {
+                console.error('Error fetching users:', err);
+            } finally {
+                setLoadingUsers(false);
+            }
+        };
+        fetchUsers();
+    }, []);
 
     const handleSave = (e: React.FormEvent) => {
         e.preventDefault();
         const formData = new FormData(e.target as HTMLFormElement);
-        const name = formData.get('name') as string;
-        const goal = Number(formData.get('goal'));
-        const current = Number(formData.get('current'));
-        const unit = formData.get('unit') as string;
+        const collaborator = formData.get('collaborator') as string;
+        const objective = formData.get('objective') as string;
+        const type = formData.get('type') as string;
+        const isCompleted = formData.get('isCompleted') === 'on';
+
+        const targetValueStr = formData.get('targetValue') as string;
+        const currentValueStr = formData.get('currentValue') as string;
+
+        const targetValue = targetValueStr ? Number(targetValueStr) : undefined;
+        const currentValue = currentValueStr ? Number(currentValueStr) : 0;
 
         if (editingGoal) {
-            setGoals(prev => prev.map(g => g.id === editingGoal.id ? { ...g, name, goal, current, unit } : g));
+            setGoals(prev => prev.map(g => g.id === editingGoal.id ? { ...g, collaborator, objective, targetValue, currentValue, type, isCompleted } : g));
+            setEditingGoal(null);
         } else {
-            setGoals(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), name, goal, current, unit }]);
+            setGoals(prev => [{
+                id: Math.random().toString(36).substr(2, 9),
+                collaborator, objective, targetValue, currentValue, type, isCompleted
+            }, ...prev]);
         }
-        setMode('manage');
+        formRef.current?.reset();
     };
 
     const handleDelete = (id: string) => {
         setGoals(prev => prev.filter(g => g.id !== id));
+        if (editingGoal?.id === id) setEditingGoal(null);
     };
 
-    if (mode === 'edit') {
-        return (
-            <div className="bg-white/60 backdrop-blur-xl p-8 rounded-3xl shadow-lg border border-white/50 h-[450px] flex flex-col animate-in fade-in slide-in-from-right-4 duration-300">
-                <div className="flex items-center gap-3 mb-8">
-                    <button
-                        onClick={() => setMode('manage')}
-                        className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"
-                    >
-                        <ArrowLeft size={20} />
-                    </button>
-                    <div>
-                        <h3 className="text-xl font-bold text-slate-800">{editingGoal ? 'Editar Meta' : 'Nova Meta'}</h3>
-                        <p className="text-xs text-slate-500">Defina o objetivo e a unidade de medida</p>
-                    </div>
+    const toggleGoalStatus = (id: string) => {
+        setGoals(prev => prev.map(g => g.id === id ? { ...g, isCompleted: !g.isCompleted } : g));
+    };
+
+    return (
+        <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[450px] flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                <div>
+                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <Target size={20} className="text-purple-500" />
+                        Metas p/ Indivíduo
+                    </h3>
                 </div>
-
-                <form onSubmit={handleSave} className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                    <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Colaborador</label>
-                        <input
-                            name="name"
-                            type="text"
-                            required
-                            className="w-full bg-white/50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                            placeholder="Nome do colaborador..."
-                            defaultValue={editingGoal?.name}
-                        />
-                    </div>
-                    <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Unidade de Medida</label>
-                        <input
-                            name="unit"
-                            type="text"
-                            required
-                            className="w-full bg-white/50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                            placeholder="Ex: Atendimentos, Documentos, R$..."
-                            defaultValue={editingGoal?.unit}
-                        />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Objetivo (Meta)</label>
-                            <input
-                                name="goal"
-                                type="number"
-                                required
-                                className="w-full bg-white/50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                                placeholder="0"
-                                defaultValue={editingGoal?.goal}
-                            />
-                        </div>
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Progresso Atual</label>
-                            <input
-                                name="current"
-                                type="number"
-                                required
-                                className="w-full bg-white/50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                                placeholder="0"
-                                defaultValue={editingGoal?.current}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="pt-4 flex gap-3 mt-auto">
-                        <button
-                            type="button"
-                            onClick={() => setMode('manage')}
-                            className="flex-1 py-3 border border-slate-200 text-slate-600 rounded-2xl text-sm font-bold hover:bg-slate-50 transition-all"
-                        >
-                            Cancelar
-                        </button>
-                        <button
-                            type="submit"
-                            className="flex-1 py-3 bg-blue-600 text-white rounded-2xl text-sm font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
-                        >
-                            <Save size={18} /> Salvar
-                        </button>
-                    </div>
-                </form>
-            </div>
-        );
-    }
-
-    if (mode === 'manage') {
-        return (
-            <div className="bg-white/60 backdrop-blur-xl p-8 rounded-3xl shadow-lg border border-white/50 h-[450px] flex flex-col animate-in fade-in slide-in-from-left-4 duration-300">
-                <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-3">
-                        <button
-                            onClick={() => setMode('view')}
-                            className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"
-                        >
-                            <ArrowLeft size={20} />
-                        </button>
-                        <div>
-                            <h3 className="text-xl font-bold text-slate-800">Gerenciar Metas</h3>
-                            <p className="text-xs text-slate-500">Configuração de objetivos</p>
-                        </div>
-                    </div>
+                {editingGoal && (
                     <button
                         onClick={() => {
                             setEditingGoal(null);
-                            setMode('edit');
+                            formRef.current?.reset();
                         }}
-                        className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all group"
+                        className="text-[10px] font-bold text-red-500 uppercase flex items-center gap-1 hover:bg-red-50 px-2 py-1 rounded-lg transition-all"
                     >
-                        <Plus size={20} className="group-hover:rotate-90 transition-transform duration-300" />
+                        <X size={12} /> Cancelar Edição
                     </button>
-                </div>
-
-                <div className="space-y-3 flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                    {goals.map(goal => (
-                        <div key={goal.id} className="bg-white/40 border border-white/60 p-4 rounded-2xl flex items-center justify-between group hover:bg-white/60 transition-all">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500">
-                                    <User size={20} />
-                                </div>
-                                <div className="min-w-0">
-                                    <p className="text-sm font-bold text-slate-700 truncate">{goal.name}</p>
-                                    <p className="text-[11px] text-slate-500">{goal.goal} {goal.unit}</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button
-                                    onClick={() => {
-                                        setEditingGoal(goal);
-                                        setMode('edit');
-                                    }}
-                                    className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors"
-                                >
-                                    <Edit2 size={16} />
-                                </button>
-                                <button
-                                    onClick={() => handleDelete(goal.id)}
-                                    className="p-2 hover:bg-red-50 text-red-500 rounded-lg transition-colors"
-                                >
-                                    <Trash2 size={16} />
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        );
-    }
-
-    return (
-        <div className="bg-white/60 backdrop-blur-xl p-8 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[450px] flex flex-col">
-            <div className="flex items-center justify-between mb-8">
-                <div>
-                    <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                        <Target size={24} className="text-purple-500" />
-                        Metas p/ Indivíduo
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-1">Acompanhamento de performance individual</p>
-                </div>
-                <button
-                    onClick={() => setMode('manage')}
-                    className="p-2.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-blue-500 transition-all"
-                >
-                    <Settings size={20} />
-                </button>
+                )}
             </div>
 
-            <div className="space-y-6 flex-1 overflow-y-auto pr-2 custom-scrollbar">
+            {/* Quick Form Section */}
+            <form
+                ref={formRef}
+                onSubmit={handleSave}
+                className="bg-white/40 border border-white/60 p-4 rounded-2xl mb-4 space-y-3 flex-shrink-0"
+            >
+                <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 uppercase ml-1">Colaborador</label>
+                        <select
+                            name="collaborator"
+                            required
+                            className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all appearance-none"
+                            key={editingGoal?.id || 'new'}
+                            defaultValue={editingGoal?.collaborator || ''}
+                        >
+                            <option value="" disabled>Quem?</option>
+                            {users.map(user => (
+                                <option key={user} value={user}>{user}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 uppercase ml-1">Tipo de Meta</label>
+                        <input
+                            name="type"
+                            type="text"
+                            required
+                            className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                            placeholder="Atendimento, Copa..."
+                            defaultValue={editingGoal?.type}
+                            key={`type-${editingGoal?.id || 'new'}`}
+                        />
+                    </div>
+                </div>
+
+                <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-slate-400 uppercase ml-1">Objetivo (Meta)</label>
+                    <div className="flex gap-2">
+                        <input
+                            name="objective"
+                            type="text"
+                            required
+                            className="flex-1 bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                            placeholder="Descreva a meta..."
+                            defaultValue={editingGoal?.objective}
+                            key={`obj-${editingGoal?.id || 'new'}`}
+                        />
+                        <button
+                            type="submit"
+                            className="bg-blue-600 text-white px-4 rounded-xl text-xs font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all flex items-center justify-center gap-1.5"
+                        >
+                            {editingGoal ? <Save size={14} /> : <Plus size={14} />}
+                            {editingGoal ? 'Salvar' : 'Add'}
+                        </button>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 uppercase ml-1">Alvo (%)</label>
+                        <input
+                            name="targetValue"
+                            type="number"
+                            className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                            placeholder="Meta"
+                            defaultValue={editingGoal?.targetValue}
+                            key={`target-${editingGoal?.id || 'new'}`}
+                        />
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 uppercase ml-1">Atual</label>
+                        <input
+                            name="currentValue"
+                            type="number"
+                            className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                            placeholder="Realizado"
+                            defaultValue={editingGoal?.currentValue}
+                            key={`curr-${editingGoal?.id || 'new'}`}
+                        />
+                    </div>
+                    <div className="flex items-center justify-center gap-2 pt-4">
+                        <input
+                            name="isCompleted"
+                            type="checkbox"
+                            id="goal-completed-quick"
+                            className="w-4 h-4 rounded accent-emerald-500 cursor-pointer"
+                            defaultChecked={editingGoal?.isCompleted}
+                            key={`done-${editingGoal?.id || 'new'}`}
+                        />
+                        <label htmlFor="goal-completed-quick" className="text-[10px] font-bold text-slate-500 flex items-center gap-1 cursor-pointer">
+                            Pronto
+                        </label>
+                    </div>
+                </div>
+            </form>
+
+            {/* List Section */}
+            <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-4">
                 {goals.map((goal, idx) => {
-                    const percent = (goal.current / goal.goal) * 100;
+                    const hasProgress = goal.targetValue && goal.targetValue > 0;
+                    const percent = hasProgress ? (goal.currentValue / (goal.targetValue || 1)) * 100 : 0;
+
                     const colors = [
                         'from-purple-500 to-purple-600',
                         'from-blue-500 to-blue-600',
@@ -223,38 +215,66 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                     const color = colors[idx % colors.length];
 
                     return (
-                        <div key={goal.id} className="space-y-3">
-                            <div className="flex justify-between items-end">
+                        <div key={goal.id} className="group relative bg-white/20 p-3 rounded-2xl border border-white/40 hover:bg-white/50 transition-all">
+                            <div className="flex justify-between items-start">
                                 <div className="flex items-center gap-3">
-                                    <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center text-white shadow-lg shadow-blue-100/20`}>
-                                        <User size={18} />
+                                    <div
+                                        onClick={() => toggleGoalStatus(goal.id)}
+                                        className={`w-8 h-8 rounded-lg bg-gradient-to-br ${goal.isCompleted ? 'from-emerald-400 to-emerald-600' : color} flex items-center justify-center text-white shadow-md cursor-pointer hover:scale-110 transition-all duration-300 flex-shrink-0`}
+                                    >
+                                        {goal.isCompleted ? <CheckCircle2 size={16} /> : <User size={16} />}
                                     </div>
-                                    <div>
-                                        <p className="text-sm font-bold text-slate-700">{goal.name}</p>
-                                        <div className="flex items-center gap-1.5 mt-0.5">
-                                            <span className="text-[11px] text-slate-400 font-medium">
-                                                {formatValue(goal.current, goal.unit)}
-                                            </span>
-                                            <ChevronRight size={10} className="text-slate-300" />
-                                            <span className="text-[11px] text-slate-600 font-bold">
-                                                {formatValue(goal.goal, goal.unit)}
-                                            </span>
-                                        </div>
+                                    <div className="min-w-0">
+                                        <p className={`text-xs font-bold truncate ${goal.isCompleted ? 'text-emerald-700 opacity-60' : 'text-slate-700'}`}>
+                                            {goal.objective}
+                                        </p>
+                                        <p className="text-[10px] text-slate-400 font-medium">
+                                            {goal.collaborator} • {goal.type}
+                                        </p>
                                     </div>
                                 </div>
-                                <div className="text-right">
-                                    <span className="text-base font-black text-slate-800">{percent.toFixed(0)}%</span>
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        onClick={() => setEditingGoal(goal)}
+                                        className="p-1.5 hover:bg-blue-50 text-slate-300 hover:text-blue-500 rounded-lg transition-colors"
+                                    >
+                                        <Edit2 size={14} />
+                                    </button>
+                                    <button
+                                        onClick={() => handleDelete(goal.id)}
+                                        className="p-1.5 hover:bg-red-50 text-slate-300 hover:text-red-500 rounded-lg transition-colors"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
                                 </div>
                             </div>
-                            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                                <div
-                                    className={`h-full rounded-full bg-gradient-to-r ${color} transition-all duration-1000 ease-out`}
-                                    style={{ width: `${Math.min(100, percent)}%` }}
-                                />
-                            </div>
+
+                            {(hasProgress || goal.isCompleted) && (
+                                <div className="mt-2">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <span className="text-[9px] font-bold text-slate-400">Progresso</span>
+                                        <span className={`text-[9px] font-black ${goal.isCompleted ? 'text-emerald-600' : 'text-slate-600'}`}>
+                                            {goal.isCompleted ? '100%' : `${percent.toFixed(0)}%`}
+                                        </span>
+                                    </div>
+                                    <div className="h-1 w-full bg-slate-100 rounded-full overflow-hidden">
+                                        <div
+                                            className={`h-full rounded-full bg-gradient-to-r ${goal.isCompleted ? 'from-emerald-400 to-emerald-600' : color} transition-all duration-1000 ease-out`}
+                                            style={{ width: `${goal.isCompleted ? 100 : Math.min(100, percent)}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     );
                 })}
+
+                {goals.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-6 text-slate-400 opacity-30">
+                        <Target size={32} className="mb-1" />
+                        <p className="text-[10px] font-bold uppercase">Nenhuma meta definida</p>
+                    </div>
+                )}
             </div>
 
             <style>{`
