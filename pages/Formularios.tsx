@@ -814,24 +814,35 @@ export const Formularios: React.FC = () => {
             }
 
             try {
-                // Fetch relation from unidade_setor
-                const { data: relData, error } = await supabase
-                    .from('unidade_setor')
-                    .select('setor')
+                // Fetch unique 'setorid' from 'colaboradores' for this unit
+                const { data: colabsData, error: colabsError } = await supabase
+                    .from('colaboradores')
+                    .select('setorid')
                     .eq('unidade', editingForm.unidade_id);
 
-                if (error) throw error;
+                if (colabsError) throw colabsError;
 
-                if (relData && relData.length > 0) {
-                    const allowedSectorIds = relData.map(r => r.setor);
-                    // Filter the main sectors list
-                    const filtered = sectors.filter(s => allowedSectorIds.includes(s.id));
-                    setAvailableSectors(filtered);
+                if (colabsData && colabsData.length > 0) {
+                    const uniqueSectorIds = [...new Set(colabsData.map((c: any) => c.setorid).filter((id: any) => id !== null && id !== undefined))];
+
+                    if (uniqueSectorIds.length > 0) {
+                        // Fetch Sector Details from 'setor' table
+                        const { data: sectorsData, error: sectorsError } = await supabase
+                            .from('setor')
+                            .select('*')
+                            .in('id', uniqueSectorIds)
+                            .order('nome', { ascending: true }); // Assuming 'nome' is the column for name
+
+                        if (sectorsError) throw sectorsError;
+                        setAvailableSectors(sectorsData || []);
+                    } else {
+                        setAvailableSectors([]);
+                    }
                 } else {
                     setAvailableSectors([]);
                 }
             } catch (err) {
-                console.error("Error fetching unit sectors:", err);
+                console.error("Error fetching unit sectors from colabs:", err);
                 setAvailableSectors([]);
             }
         };
@@ -1223,7 +1234,7 @@ export const Formularios: React.FC = () => {
                 console.log('Fetching metadata for Responders (colaboradores table):', userIds);
                 const { data: usersData, error: metaError } = await supabase
                     .from('colaboradores')
-                    .select('id, nome, setor, cargo, cargos(nome)')
+                    .select('id, nome, setor, setorid, cargo, cargos(nome)') // Added setorid
                     .in('id', userIds);
 
                 console.log('Metadata Users Data:', usersData, 'Error:', metaError);
@@ -1232,17 +1243,12 @@ export const Formularios: React.FC = () => {
                     // Check if we need to filter by Sector (If form has a specific sector set)
                     let validUsers = usersData;
                     if (form.setor) {
-                        // Find sector name
-                        // We need access to sectors list. It is in scope.
-                        const targetSector = sectors.find(s => s.id === form.setor);
-                        if (targetSector) {
-                            const targetName = targetSector.nome;
-                            validUsers = usersData.filter((u: any) => u.setor === targetName);
+                        // Filter by EXACT Sector ID match ('setorid')
+                        validUsers = usersData.filter((u: any) => u.setorid === form.setor);
 
-                            // If filtering, we must also filter the ANSWERS to valid users only
-                            const validUserIds = new Set(validUsers.map((u: any) => u.id));
-                            finalAnswers = aData.filter((a: any) => validUserIds.has(a.respondedor));
-                        }
+                        // If filtering, we must also filter the ANSWERS to valid users only
+                        const validUserIds = new Set(validUsers.map((u: any) => u.id));
+                        finalAnswers = aData.filter((a: any) => validUserIds.has(a.respondedor));
                     }
 
                     validUsers.forEach((u: any) => {
@@ -1402,7 +1408,7 @@ export const Formularios: React.FC = () => {
                 console.log('Fetching collaborators for Unit ID:', form.unidade_id);
                 const { data: allUsers, error: usersError } = await supabase
                     .from('colaboradores')
-                    .select('id, nome, setor, cargo, unidade, cargos(nome)')
+                    .select('id, nome, setor, setorid, cargo, unidade, cargos(nome)') // Added setorid
                     .eq('unidade', form.unidade_id); // Filter by specific Unit
                 // .eq('active', true); // 'colaboradores' might not have active column, user requested 'real amount'
 
@@ -1415,11 +1421,7 @@ export const Formularios: React.FC = () => {
 
                     // Filter Total Employees by Sector if form has one
                     if (form.setor) {
-                        const targetSector = sectors.find(s => s.id === form.setor);
-                        if (targetSector) {
-                            const targetName = targetSector.nome;
-                            filteredUsers = allUsers.filter((u: any) => u.setor === targetName);
-                        }
+                        filteredUsers = allUsers.filter((u: any) => u.setorid === form.setor);
                     }
 
                     setCompanyUsers(filteredUsers);
@@ -3895,7 +3897,10 @@ export const Formularios: React.FC = () => {
                                     placeholder="Selecione uma unidade..."
                                     options={units.map(u => ({ value: u.id, label: u.nome_unidade }))}
                                     value={editingForm?.unidade_id}
-                                    onChange={(val: any) => setEditingForm(prev => ({ ...prev!, unidade_id: Number(val) }))}
+                                    onChange={(val: any) => {
+                                        console.log('Selected Unit:', val);
+                                        setEditingForm(prev => ({ ...prev!, unidade_id: val }))
+                                    }}
                                     disabled={!editingForm?.empresa}
                                 />
                             </div>
