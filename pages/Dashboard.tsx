@@ -10,7 +10,6 @@ import { FinancialHealthQuadrant } from '../components/FinancialHealthQuadrant';
 import { OperationalEfficiencyQuadrant } from '../components/OperationalEfficiencyQuadrant';
 import { ExpansionAcademyQuadrant } from '../components/ExpansionAcademyQuadrant';
 import { ClimateQualityQuadrant } from '../components/ClimateQualityQuadrant';
-import { DailyGoalQuadrant } from '../components/DailyGoalQuadrant';
 import { SupportTicketsQuadrant } from '../components/SupportTicketsQuadrant';
 
 
@@ -407,7 +406,6 @@ export const Dashboard: React.FC = () => {
         <OperationalEfficiencyQuadrant />
         <ExpansionAcademyQuadrant />
         <ClimateQualityQuadrant />
-        <DailyGoalQuadrant />
         <SupportTicketsQuadrant />
       </div>
     </div>

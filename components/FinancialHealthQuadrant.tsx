@@ -8,13 +8,12 @@ export const FinancialHealthQuadrant: React.FC = () => {
     const filter = useContext(FilterContext);
     const [loading, setLoading] = useState(true);
     const [stats, setStats] = useState({
-        faturamentoBruto: 0,
-        faturamentoRecebido: 0, // This will be "Paid portion of the projected billing"
-        faturamentoLiquido: 0,
+        faturamentoLiquido: 0, // Now: Receitas (Executada) - Despesas (Projetada)
+        faturamentoTotal: 0,   // Now: Receitas (Executada)
         prazoMedio: 0,
         recuperacaoPassivo: 0,
         ticketMedio: 0,
-        totalDespesas: 0
+        totalDespesas: 0       // Now: Despesas (Projetada)
     });
 
     useEffect(() => {
@@ -24,44 +23,30 @@ export const FinancialHealthQuadrant: React.FC = () => {
                 const startDate = getUTCStart(filter.startDate);
                 const endDate = getUTCEnd(filter.endDate);
 
-                // 1. Faturamento Bruto (All values projected for THIS period)
-                // We use data_projetada to define the "billing of the month"
-                const { data: receitasProjetadas_Raw } = await supabase
+                // 1. Receitas (Baseado na Data de Pagamento / Executada)
+                const { data: receitasExecutadas } = await supabase
                     .from('financeiro_receitas')
                     .select('valor_total, data_executada, data_projetada, contratante')
-                    .gte('data_projetada', startDate)
-                    .lt('data_projetada', endDate);
+                    .gte('data_executada', startDate)
+                    .lt('data_executada', endDate);
 
-                const faturamentoBruto = receitasProjetadas_Raw?.reduce((acc, r) => acc + (Number(r.valor_total) || 0), 0) || 0;
+                const totalReceitas = receitasExecutadas?.reduce((acc, r) => acc + (Number(r.valor_total) || 0), 0) || 0;
 
-                // 2. Faturamento Recebido (The portion of that billing THAT IS PAID)
-                // This is the core fix: compare what was billed this month vs what was paid OF THIS MONTH'S billing
-                const faturamentoRecebido_BillingBased = receitasProjetadas_Raw?.reduce((acc, r) => {
-                    return acc + (r.data_executada ? (Number(r.valor_total) || 0) : 0);
-                }, 0) || 0;
-
-                // 3. Total Despesas (All values projected for THIS period)
+                // 2. Despesas (Baseado na Data Projetada)
                 const { data: despesasProjetadas } = await supabase
                     .from('financeiro_despesas')
-                    .select('valor')
+                    .select('valor, data_projetada')
                     .gte('data_projetada', startDate)
                     .lt('data_projetada', endDate);
 
                 const totalDespesas = despesasProjetadas?.reduce((acc, d) => acc + (Number(d.valor) || 0), 0) || 0;
 
-                // 4. Faturamento Líquido (Formula: Bruto - Total Despesas)
-                const faturamentoLiquido = faturamentoBruto - totalDespesas;
+                // 3. Faturamento Líquido (Receitas - Despesas)
+                const faturamentoLiquido = totalReceitas - totalDespesas;
 
-                // 5. Cash Flow Data (Actually paid receipts IN THE PERIOD, regardless of when they were due)
-                // Needed for Recuperação de Passivo and Prazo Médio
-                const { data: receitasExecutadasNoPeriodo } = await supabase
-                    .from('financeiro_receitas')
-                    .select('valor_total, data_projetada, data_executada')
-                    .gte('data_executada', startDate)
-                    .lt('data_executada', endDate);
-
-                // 6. Prazo Médio de Recebimento (Average performance of payments entering now)
-                const paidReceitas = receitasExecutadasNoPeriodo?.filter(r => r.data_executada && r.data_projetada) || [];
+                // 4. Prazo Médio (Mantendo lógica original se possível, mas usando o dataset carregado)
+                // Usaremos as receitas executadas pois já as temos.
+                const paidReceitas = receitasExecutadas?.filter(r => r.data_executada && r.data_projetada) || [];
                 let totalDiasRecebimento = 0;
                 paidReceitas.forEach(r => {
                     const diff = new Date(r.data_executada).getTime() - new Date(r.data_projetada).getTime();
@@ -69,27 +54,26 @@ export const FinancialHealthQuadrant: React.FC = () => {
                 });
                 const prazoMedio = paidReceitas.length > 0 ? totalDiasRecebimento / paidReceitas.length : 0;
 
-                // 7. Recuperação de Passivo
+                // 5. Recuperação de Passivo
                 // Paid in current period but billed > 30 days before period start
                 const startOfCurrentPeriod = new Date(filter.startDate);
                 const thirtyDaysBeforeStart = new Date(startOfCurrentPeriod);
                 thirtyDaysBeforeStart.setDate(thirtyDaysBeforeStart.getDate() - 30);
                 const thirtyDaysBeforeISO = getUTCStart(thirtyDaysBeforeStart);
 
-                const recuperacaoPassivo = receitasExecutadasNoPeriodo?.filter(r => {
+                const recuperacaoPassivo = receitasExecutadas?.filter(r => {
                     if (!r.data_projetada) return false;
                     return r.data_projetada < thirtyDaysBeforeISO;
                 }).reduce((acc, r) => acc + (Number(r.valor_total) || 0), 0) || 0;
 
-                // 8. Ticket Médio (Bruto / Unique clients in projects)
-                const uniqueClients = new Set(receitasProjetadas_Raw?.map(r => r.contratante).filter(Boolean));
+                // 6. Ticket Médio (Receitas Executadas / Unique clients)
+                const uniqueClients = new Set(receitasExecutadas?.map(r => r.contratante).filter(Boolean));
                 const totalClients = uniqueClients.size || 1;
-                const ticketMedio = faturamentoBruto / totalClients;
+                const ticketMedio = totalReceitas / totalClients;
 
                 setStats({
-                    faturamentoBruto,
-                    faturamentoRecebido: faturamentoRecebido_BillingBased,
                     faturamentoLiquido,
+                    faturamentoTotal: totalReceitas,
                     prazoMedio,
                     recuperacaoPassivo,
                     ticketMedio,
@@ -119,9 +103,9 @@ export const FinancialHealthQuadrant: React.FC = () => {
         );
     }
 
-    const gapInadimplencia = stats.faturamentoBruto > 0
-        ? ((stats.faturamentoBruto - stats.faturamentoRecebido) / stats.faturamentoBruto) * 100
-        : 0;
+    const gapInadimplencia = stats.faturamentoTotal > 0
+        ? ((stats.faturamentoTotal - stats.faturamentoLiquido) / stats.faturamentoTotal) * 100
+        : 0; // Keeping variable name for compatibility but logic is changed in render
 
     return (
         <div className="bg-white/60 backdrop-blur-xl p-8 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-full">
@@ -150,24 +134,25 @@ export const FinancialHealthQuadrant: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Faturamento Bruto x Recebido & GAP */}
+                {/* Desempenho (Recebido / Faturamento) */}
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-all hover:shadow-md">
                     <div className="flex justify-between items-start mb-3">
                         <div>
                             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Desempenho (Recebido / Faturamento)</p>
                             <p className="text-lg font-bold text-slate-800">
-                                <span className="text-green-600">{formatCurrency(stats.faturamentoRecebido)}</span>
-                                <span className="text-black/60"> / {formatCurrency(stats.faturamentoBruto)}</span>
+                                <span className={stats.faturamentoLiquido >= 0 ? "text-green-600" : "text-red-600"}>{formatCurrency(stats.faturamentoLiquido)}</span>
+                                <span className="text-black/60"> / {formatCurrency(stats.faturamentoTotal)}</span>
                             </p>
                         </div>
-                        <div className={`px-2 py-1 rounded-lg text-xs font-bold ${gapInadimplencia > 10 ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-                            GAP: {gapInadimplencia.toFixed(1)}%
+                        {/* We use Faturamento Liquido / Faturamento Total as the ratio */}
+                        <div className={`px-2 py-1 rounded-lg text-xs font-bold ${gapInadimplencia > 0 ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>
+                            {stats.faturamentoTotal > 0 ? ((stats.faturamentoLiquido / stats.faturamentoTotal) * 100).toFixed(1) : 0}%
                         </div>
                     </div>
                     <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                         <div
-                            className={`h-full rounded-full transition-all duration-1000 ${gapInadimplencia > 10 ? 'bg-red-500' : 'bg-blue-500'}`}
-                            style={{ width: `${Math.min(100, (stats.faturamentoRecebido / (stats.faturamentoBruto || 1)) * 100)}%` }}
+                            className={`h-full rounded-full transition-all duration-1000 ${stats.faturamentoLiquido >= 0 ? 'bg-blue-500' : 'bg-red-500'}`}
+                            style={{ width: `${Math.min(100, Math.max(0, (stats.faturamentoLiquido / (stats.faturamentoTotal || 1)) * 100))}%` }}
                         ></div>
                     </div>
                 </div>
