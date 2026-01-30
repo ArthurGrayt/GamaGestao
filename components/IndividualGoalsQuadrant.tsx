@@ -161,51 +161,13 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase ml-1">Alvo (%)</label>
-                        <input
-                            name="targetValue"
-                            type="number"
-                            className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                            placeholder="Meta"
-                            defaultValue={editingGoal?.targetValue}
-                            key={`target-${editingGoal?.id || 'new'}`}
-                        />
-                    </div>
-                    <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase ml-1">Atual</label>
-                        <input
-                            name="currentValue"
-                            type="number"
-                            className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                            placeholder="Realizado"
-                            defaultValue={editingGoal?.currentValue}
-                            key={`curr-${editingGoal?.id || 'new'}`}
-                        />
-                    </div>
-                    <div className="flex items-center justify-center gap-2 pt-4">
-                        <input
-                            name="isCompleted"
-                            type="checkbox"
-                            id="goal-completed-quick"
-                            className="w-4 h-4 rounded accent-emerald-500 cursor-pointer"
-                            defaultChecked={editingGoal?.isCompleted}
-                            key={`done-${editingGoal?.id || 'new'}`}
-                        />
-                        <label htmlFor="goal-completed-quick" className="text-[10px] font-bold text-slate-500 flex items-center gap-1 cursor-pointer">
-                            Pronto
-                        </label>
-                    </div>
-                </div>
+                {/* Content removed to simplify UI as requested */}
             </form>
 
             {/* List Section */}
             <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-4">
                 {goals.map((goal, idx) => {
-                    const hasProgress = goal.targetValue && goal.targetValue > 0;
-                    const percent = hasProgress ? (goal.currentValue / (goal.targetValue || 1)) * 100 : 0;
-
+                    // Removed hasProgress and percent calculation as progress bars are removed
                     const colors = [
                         'from-purple-500 to-purple-600',
                         'from-blue-500 to-blue-600',
@@ -215,56 +177,41 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                     const color = colors[idx % colors.length];
 
                     return (
-                        <div key={goal.id} className="group relative bg-white/20 p-3 rounded-2xl border border-white/40 hover:bg-white/50 transition-all">
-                            <div className="flex justify-between items-start">
-                                <div className="flex items-center gap-3">
+                        <div key={goal.id} className="group relative bg-white/30 backdrop-blur-sm p-4 rounded-3xl border border-white/60 hover:bg-white/50 transition-all duration-300 shadow-sm hover:shadow-md">
+                            <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-4">
                                     <div
                                         onClick={() => toggleGoalStatus(goal.id)}
-                                        className={`w-8 h-8 rounded-lg bg-gradient-to-br ${goal.isCompleted ? 'from-emerald-400 to-emerald-600' : color} flex items-center justify-center text-white shadow-md cursor-pointer hover:scale-110 transition-all duration-300 flex-shrink-0`}
+                                        className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${goal.isCompleted ? 'from-emerald-400 to-emerald-600' : color} flex items-center justify-center text-white shadow-lg transition-all duration-300 flex-shrink-0`}
                                     >
-                                        {goal.isCompleted ? <CheckCircle2 size={16} /> : <User size={16} />}
+                                        {goal.isCompleted ? <CheckCircle2 size={20} /> : <User size={20} />}
                                     </div>
                                     <div className="min-w-0">
-                                        <p className={`text-xs font-bold truncate ${goal.isCompleted ? 'text-emerald-700 opacity-60' : 'text-slate-700'}`}>
+                                        <p className={`text-sm font-bold tracking-tight ${goal.isCompleted ? 'text-emerald-700/60 line-through' : 'text-slate-800'}`}>
                                             {goal.objective}
                                         </p>
-                                        <p className="text-[10px] text-slate-400 font-medium">
-                                            {goal.collaborator} • {goal.type}
-                                        </p>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{goal.collaborator}</span>
+                                            <span className="w-1 h-1 rounded-full bg-slate-300" />
+                                            <span className="text-[10px] font-medium text-slate-500">{goal.type}</span>
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <button
                                         onClick={() => setEditingGoal(goal)}
-                                        className="p-1.5 hover:bg-blue-50 text-slate-300 hover:text-blue-500 rounded-lg transition-colors"
+                                        className="p-2 hover:bg-blue-50 text-slate-400 hover:text-blue-500 rounded-xl transition-colors"
                                     >
-                                        <Edit2 size={14} />
+                                        <Edit2 size={16} />
                                     </button>
                                     <button
                                         onClick={() => handleDelete(goal.id)}
-                                        className="p-1.5 hover:bg-red-50 text-slate-300 hover:text-red-500 rounded-lg transition-colors"
+                                        className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-xl transition-colors"
                                     >
-                                        <Trash2 size={14} />
+                                        <Trash2 size={16} />
                                     </button>
                                 </div>
                             </div>
-
-                            {(hasProgress || goal.isCompleted) && (
-                                <div className="mt-2">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <span className="text-[9px] font-bold text-slate-400">Progresso</span>
-                                        <span className={`text-[9px] font-black ${goal.isCompleted ? 'text-emerald-600' : 'text-slate-600'}`}>
-                                            {goal.isCompleted ? '100%' : `${percent.toFixed(0)}%`}
-                                        </span>
-                                    </div>
-                                    <div className="h-1 w-full bg-slate-100 rounded-full overflow-hidden">
-                                        <div
-                                            className={`h-full rounded-full bg-gradient-to-r ${goal.isCompleted ? 'from-emerald-400 to-emerald-600' : color} transition-all duration-1000 ease-out`}
-                                            style={{ width: `${goal.isCompleted ? 100 : Math.min(100, percent)}%` }}
-                                        />
-                                    </div>
-                                </div>
-                            )}
                         </div>
                     );
                 })}
