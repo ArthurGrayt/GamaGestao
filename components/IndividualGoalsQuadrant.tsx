@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../services/supabase';
-import { User, Plus, Edit2, Trash2, Target, ChevronRight, Save, X, CheckCircle2, Circle, RefreshCw } from 'lucide-react';
+import { User, Plus, Edit2, Trash2, Target, ChevronRight, Save, X, CheckCircle2, Circle, RefreshCw, Info } from 'lucide-react';
 
 interface IndividualGoal {
     id: string;
@@ -14,11 +14,7 @@ interface IndividualGoal {
 
 export const IndividualGoalsQuadrant: React.FC = () => {
     const [users, setUsers] = useState<string[]>([]);
-    const [goals, setGoals] = useState<IndividualGoal[]>([
-        { id: '1', collaborator: 'Arthur', objective: 'Fazer café', currentValue: 0, type: 'Copa', isCompleted: false },
-        { id: '2', collaborator: 'Beatriz', objective: 'Realizar 50 atendimentos', targetValue: 50, currentValue: 35, type: 'Atendimento', isCompleted: false },
-        { id: '3', collaborator: 'Carlos', objective: 'Recuperar documentos pendentes', targetValue: 20, currentValue: 5, type: 'Documentação', isCompleted: false },
-    ]);
+    const [goals, setGoals] = useState<IndividualGoal[]>([]);
     const [editingGoal, setEditingGoal] = useState<IndividualGoal | null>(null);
     const [loadingUsers, setLoadingUsers] = useState(false);
     const formRef = useRef<HTMLFormElement>(null);
@@ -43,7 +39,22 @@ export const IndividualGoalsQuadrant: React.FC = () => {
             }
         };
         fetchUsers();
+
+        // Load goals from local storage
+        const savedGoals = localStorage.getItem('gama_individual_goals');
+        if (savedGoals) {
+            try {
+                setGoals(JSON.parse(savedGoals));
+            } catch (e) {
+                console.error('Error loading goals from localStorage:', e);
+            }
+        }
     }, []);
+
+    // Save goals to local storage whenever they change
+    useEffect(() => {
+        localStorage.setItem('gama_individual_goals', JSON.stringify(goals));
+    }, [goals]);
 
     const handleSave = (e: React.FormEvent) => {
         e.preventDefault();
@@ -81,7 +92,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
     };
 
     return (
-        <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[450px] flex flex-col overflow-hidden">
+        <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[450px] flex flex-col relative">
             {/* Header */}
             <div className="flex items-center justify-between mb-4 flex-shrink-0">
                 <div>
@@ -110,29 +121,51 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                 className="bg-white/40 border border-white/60 p-4 rounded-2xl mb-4 space-y-3 flex-shrink-0"
             >
                 <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase ml-1">Colaborador</label>
-                        <select
+                    <div className="space-y-1.5">
+                        <div className="h-4 flex items-center ml-1">
+                            <label className="text-[9px] font-bold text-slate-400 uppercase">Colaborador</label>
+                        </div>
+                        <input
                             name="collaborator"
+                            list="users-list"
                             required
-                            className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all appearance-none"
-                            key={editingGoal?.id || 'new'}
+                            className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                            placeholder="Pesquisar..."
                             defaultValue={editingGoal?.collaborator || ''}
-                        >
-                            <option value="" disabled>Quem?</option>
+                            key={editingGoal?.id || 'new'}
+                        />
+                        <datalist id="users-list">
                             {users.map(user => (
-                                <option key={user} value={user}>{user}</option>
+                                <option key={user} value={user} />
                             ))}
-                        </select>
+                        </datalist>
                     </div>
-                    <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase ml-1">Tipo de Meta</label>
+                    <div className="space-y-1.5">
+                        <div className="h-4 flex items-center gap-1 ml-1 relative group/tooltip">
+                            <label className="text-[9px] font-bold text-slate-400 uppercase">Tipo de Meta</label>
+                            <Info size={10} className="text-orange-500/50 cursor-help" />
+
+                            {/* Tooltip Balloon */}
+                            <div className="absolute bottom-full left-0 mb-2 w-64 p-3 bg-slate-800/95 text-white text-[10px] rounded-2xl shadow-2xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-300 z-[100] pointer-events-none border border-slate-700/50 backdrop-blur-md">
+                                <p className="leading-relaxed">
+                                    Uma forma de classificar a meta, como uma etiqueta. Ajuda a entender para que ela serve e como deve ser acompanhada.
+                                    <br /><br />
+                                    <span className="font-bold text-orange-400">Exemplos:</span><br />
+                                    • “Vender 10 produtos” → Meta de resultado<br />
+                                    • “Estudar 30 min/dia” → Meta de processo<br />
+                                    • “Concluir curso” → Meta de aprendizado<br />
+                                    • “Melhorar atendimento” → Meta qualitativa
+                                </p>
+                                {/* Triangle Arrow */}
+                                <div className="absolute top-full left-4 -mt-1 w-2 h-2 bg-slate-800 rotate-45 border-r border-b border-slate-700/50" />
+                            </div>
+                        </div>
                         <input
                             name="type"
                             type="text"
                             required
                             className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                            placeholder="Atendimento, Copa..."
+                            placeholder=""
                             defaultValue={editingGoal?.type}
                             key={`type-${editingGoal?.id || 'new'}`}
                         />
