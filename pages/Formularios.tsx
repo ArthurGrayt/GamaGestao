@@ -1209,7 +1209,48 @@ export const Formularios: React.FC = () => {
         setViewMode('analytics');
         setLoadingStats(true);
 
-        // Fetch Questions
+        // 1. Fetch Company/Unit Population First (to decide on sector filtering)
+        let allUsers: any[] = [];
+        let totalEmployeesCount = 0;
+        let unitEmpresaId: number | null = null;
+
+        if (form.unidade_id) {
+            try {
+                const { data: unitData } = await supabase
+                    .from('unidades')
+                    .select('empresaid')
+                    .eq('id', form.unidade_id)
+                    .single();
+
+                unitEmpresaId = unitData?.empresaid || null;
+
+                console.log(`[Analytics] Inicando busca de população para Unidade ID: ${form.unidade_id}`);
+                const { data: unitUsers } = await supabase
+                    .from('colaboradores')
+                    .select('id, nome, setor, setorid, cargo, unidade, cargos(nome)')
+                    .eq('unidade', form.unidade_id);
+
+                allUsers = unitUsers || [];
+
+                if (allUsers.length === 0 && unitEmpresaId) {
+                    console.log(`[Analytics] Unidade vazia. Buscando na Empresa ID: ${unitEmpresaId}`);
+                    const { data: companyUsers } = await supabase
+                        .from('colaboradores')
+                        .select('id, nome, setor, setorid, cargo, unidade, cargos(nome)')
+                        .eq('empresaid', unitEmpresaId);
+                    allUsers = companyUsers || [];
+                }
+            } catch (err) {
+                console.error('[Analytics] Erro ao buscar população:', err);
+            }
+        }
+
+        const unitPopulationSize = allUsers.length;
+        const shouldFilterBySector = !!form.setor && unitPopulationSize >= 20;
+
+        console.log(`[Analytics] População total detectada: ${unitPopulationSize}. Filtro de setor será ${shouldFilterBySector ? 'APLICADO' : 'IGNORADO (População < 20 ou Sem Setor no Form)'}.`);
+
+        // 2. Fetch Questions & Answers
         const { data: qData } = await supabase
             .from('form_questions')
             .select('*')
@@ -1217,13 +1258,13 @@ export const Formularios: React.FC = () => {
             .order('question_order');
         setQuestions(qData || []);
 
-        // Fetch Answers
         const { data: aData } = await supabase
             .from('form_answers')
             .select('*')
             .eq('form_id', form.id)
             .order('created_at', { ascending: false });
 
+        // 3. Process Answers & Metadata
         if (aData && aData.length > 0) {
             let finalAnswers = aData;
             let finalMeta: Record<string, { nome: string; setor: string; cargo: string }> = {};
@@ -1231,28 +1272,25 @@ export const Formularios: React.FC = () => {
             const userIds = [...new Set(aData.map((a: any) => a.respondedor).filter(Boolean))];
 
             if (userIds.length > 0) {
-                console.log('Fetching metadata for Responders (colaboradores table):', userIds);
-                const { data: usersData, error: metaError } = await supabase
+                const { data: usersData } = await supabase
                     .from('colaboradores')
-                    .select('id, nome, setor, setorid, cargo, cargos(nome)') // Added setorid
+                    .select('id, nome, setor, setorid, cargo, cargos(nome)')
                     .in('id', userIds);
 
-                console.log('Metadata Users Data:', usersData, 'Error:', metaError);
-
                 if (usersData) {
-                    // Check if we need to filter by Sector (If form has a specific sector set)
-                    let validUsers = usersData;
-                    if (form.setor) {
-                        // Filter by EXACT Sector ID match ('setorid')
-                        validUsers = usersData.filter((u: any) => u.setorid === form.setor);
+                    let validUsersForList = usersData;
+                    if (shouldFilterBySector) {
+                        console.log(`[Analytics] Aplicando filtro de setor "${form.setor}" aos respondentes identificados.`);
+                        validUsersForList = usersData.filter((u: any) => String(u.setorid) === String(form.setor));
 
-                        // If filtering, we must also filter the ANSWERS to valid users only
-                        const validUserIds = new Set(validUsers.map((u: any) => u.id));
-                        finalAnswers = aData.filter((a: any) => validUserIds.has(a.respondedor));
+                        const validUserIds = new Set(validUsersForList.map((u: any) => u.id));
+                        finalAnswers = aData.filter((a: any) => {
+                            if (!a.respondedor) return true; // Keep anonymous
+                            return validUserIds.has(a.respondedor);
+                        });
                     }
 
-                    validUsers.forEach((u: any) => {
-                        // Handle nested cargo object if join works
+                    validUsersForList.forEach((u: any) => {
                         const cargoName = u.cargos?.nome || (u.cargo ? `Cargo ${u.cargo}` : '-');
                         finalMeta[u.id] = { nome: u.nome, setor: u.setor || '-', cargo: cargoName };
                     });
@@ -1263,34 +1301,46 @@ export const Formularios: React.FC = () => {
             setRespondentMetadata(finalMeta);
         } else {
             setAnswers([]);
+            setRespondentMetadata({});
         }
 
-        // Fetch Diagnostic Data if HSE form
+        // 4. Set Global Metrics
+        let filteredPopulation = allUsers;
+        if (shouldFilterBySector) {
+            filteredPopulation = allUsers.filter((u: any) => String(u.setorid) === String(form.setor));
+        }
+
+        setCompanyUsers(filteredPopulation);
+        setTotalEmployees(filteredPopulation.length);
+
+        if (filteredPopulation.length > 20) {
+            const stats: Record<string, number> = {};
+            filteredPopulation.forEach((u: any) => {
+                const s = u.setor || 'Não Definido';
+                stats[s] = (stats[s] || 0) + 1;
+            });
+            setSectorStats(Object.entries(stats).map(([name, count]) => ({ name, count })));
+        } else {
+            setSectorStats([]);
+        }
+
+        // 5. HSE Logic
         if (form.hse_id) {
             console.log('Fetching diagnostic data for HSE Form ID:', form.id);
 
-            // Fetch Dimensions metadata (for is_positive check)
-            // Fetch Dimensions metadata (for is_positive check) from form-specific config
+            // Fetch Dimensions metadata
             const { data: dims } = await supabase
                 .from('form_hse_dimensions')
                 .select('*');
 
-            if (dims) setHseDimensions(dims);
-
-            const { data: rules } = await supabase
-                .from('form_hse_rules')
-                .select('*');
-
             if (dims) {
-                // Map to match HSEDimension interface expectation (id = dimension_id)
                 const mappedDims = dims.map((d: any) => ({
                     ...d,
-                    id: d.id, // Strictly use PK as Rules reference form_hse_dimensions(id)
+                    id: d.id,
                     is_positive: d.is_positive
                 }));
                 setHseDimensions(mappedDims);
 
-                // Fetch Rules for these dimensions
                 const dimIds = mappedDims.map((d: any) => d.id);
                 if (dimIds.length > 0) {
                     const { data: rules, error: rulesError } = await supabase
@@ -1309,14 +1359,14 @@ export const Formularios: React.FC = () => {
                 if (aData && aData.length > 0) {
                     const formId = aData[0].form_id;
 
-                    // 1. Fetch Diagnostic Data (Questions & Dimensions)
+                    // Fetch Diagnostic Data (RPC)
                     const { data: diagData, error: diagError } = await supabase
                         .rpc('get_hse_diagnostic_data', { p_form_id: formId });
 
                     if (diagError) console.error('Error fetching diagnostic data:', diagError);
                     else setDiagnosticData(diagData || []);
 
-                    // 2. Fetch Analysis View (Dimensions Risk)
+                    // Fetch Analysis View
                     const { data: analysisData, error: analysisError } = await supabase
                         .from('view_hse_analise_dimensoes')
                         .select('*')
@@ -1329,7 +1379,6 @@ export const Formularios: React.FC = () => {
                 console.error('Error fetching HSE analysis data:', error);
             }
 
-
             const { data: dd, error: ddError } = await supabase
                 .from('view_hse_analise_itens')
                 .select('*')
@@ -1341,109 +1390,35 @@ export const Formularios: React.FC = () => {
             } else if (dd) {
                 console.log('Diagnostic Data Loaded:', dd);
                 setDiagnosticData(dd as HSEDiagnosticItem[]);
-            } else {
-                setDiagnosticData([]);
             }
 
-            // Fetch Interpretative Text
-            const { data: textData, error: textError } = await supabase
+            // Fetch Texts
+            const { data: textData } = await supabase
                 .from('view_hse_texto_analise')
                 .select('texto_final_pronto')
                 .eq('form_id', form.id)
-                .single();
+                .maybeSingle();
+            setInterpretativeText(textData?.texto_final_pronto || '');
 
-            if (textError) {
-                console.error('Error fetching interpretative text:', textError);
-                setInterpretativeText('');
-            } else if (textData) {
-                setInterpretativeText(textData.texto_final_pronto);
-            }
-
-            // Fetch Action Plan Text
-            const { data: planData, error: planError } = await supabase
+            const { data: planData } = await supabase
                 .from('view_hse_texto_plano')
                 .select('texto_plano_pronto')
                 .eq('form_id', form.id)
-                .single();
+                .maybeSingle();
+            setActionPlanText(planData?.texto_plano_pronto || '');
 
-            if (planError) {
-                console.error('Error fetching action plan text:', planError);
-                setActionPlanText('');
-            } else if (planData) {
-                setActionPlanText(planData.texto_plano_pronto);
-            }
-
-            // Fetch Conclusion Text
-            const { data: conData, error: conError } = await supabase
+            const { data: conData } = await supabase
                 .from('view_hse_texto_conclusao')
                 .select('texto_conclusao_pronto')
                 .eq('form_id', form.id)
-                .single();
-
-            if (conError) {
-                console.error('Error fetching conclusion text:', conError);
-                setConclusionText('');
-            } else if (conData) {
-                setConclusionText(conData.texto_conclusao_pronto);
-            }
+                .maybeSingle();
+            setConclusionText(conData?.texto_conclusao_pronto || '');
         } else {
             console.log('Not an HSE form (no hse_id)');
             setDiagnosticData([]);
             setInterpretativeText('');
             setActionPlanText('');
             setConclusionText('');
-        }
-
-        // Fetch Employee Data for Comparison
-        if (form.unidade_id) {
-            try {
-                // 1. Get Empresa ID from Unidade
-                const { data: unitData } = await supabase
-                    .from('unidades')
-                    .select('empresaid')
-                    .eq('id', form.unidade_id)
-                    .single();
-
-                // 2. Fetch All Employees for Participation Tracking
-                console.log('Fetching collaborators for Unit ID:', form.unidade_id);
-                const { data: allUsers, error: usersError } = await supabase
-                    .from('colaboradores')
-                    .select('id, nome, setor, setorid, cargo, unidade, cargos(nome)') // Added setorid
-                    .eq('unidade', form.unidade_id); // Filter by specific Unit
-                // .eq('active', true); // 'colaboradores' might not have active column, user requested 'real amount'
-
-                console.log('Fetched Collaborators:', allUsers?.length, 'Error:', usersError);
-
-
-
-                if (!usersError && allUsers) {
-                    let filteredUsers = allUsers;
-
-                    // Filter Total Employees by Sector if form has one
-                    if (form.setor) {
-                        filteredUsers = allUsers.filter((u: any) => u.setorid === form.setor);
-                    }
-
-                    setCompanyUsers(filteredUsers);
-                    setTotalEmployees(filteredUsers.length);
-
-                    // 3. If > 20, calculate Sector Breakdown from full list
-                    if (filteredUsers.length > 20) {
-                        const stats: Record<string, number> = {};
-                        filteredUsers.forEach((u: any) => {
-                            const s = u.setor || 'Não Definido';
-                            stats[s] = (stats[s] || 0) + 1;
-                        });
-                        setSectorStats(Object.entries(stats).map(([name, count]) => ({ name, count })));
-                    } else {
-                        setSectorStats([]);
-                    }
-                } else {
-                    setTotalEmployees(0);
-                }
-            } catch (err) {
-                console.error('Error fetching stats comparisons:', err);
-            }
         }
 
         setLoadingStats(false);
@@ -1620,9 +1595,11 @@ export const Formularios: React.FC = () => {
         const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1'];
 
         const renderOverview = () => {
+            const respondents = getRespondents();
+            const totalRespondents = respondents.length;
             const totalResponses = getTotalResponses();
-            const responseRate = totalEmployees > 0 ? (totalResponses / totalEmployees) * 100 : 0;
-            const uniqueResponders = new Set(answers.map(a => a.responder_identifier)).size;
+            const responseRate = totalEmployees > 0 ? (totalRespondents / totalEmployees) * 100 : 0;
+            const uniqueResponders = totalRespondents;
 
             return (
                 <div className="space-y-6 animate-in fade-in duration-300">
@@ -1655,7 +1632,7 @@ export const Formularios: React.FC = () => {
                         {totalEmployees > 0 && (
                             <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-all col-span-2">
                                 <div className="flex justify-between items-start mb-2">
-                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Adesão ({totalResponses}/{totalEmployees})</span>
+                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Adesão ({totalRespondents}/{totalEmployees})</span>
                                     <PieChartIcon size={16} className="text-orange-500" />
                                 </div>
                                 <div className="flex items-center gap-4">

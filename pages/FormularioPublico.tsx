@@ -1008,4 +1008,3 @@ const RegistrationModal = ({ isOpen, onClose, cpf, onSuccess }: RegistrationModa
         </div>
     );
 };
-
