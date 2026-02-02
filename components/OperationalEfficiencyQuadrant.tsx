@@ -61,23 +61,29 @@ export const OperationalEfficiencyQuadrant: React.FC = () => {
 
                 const slaAvg = countSLA > 0 ? (totalTime / countSLA) / (1000 * 60 * 60 * 24) : 0; // Average days
 
-                // 2. Backlog and Rework Logic (doc_seg)
-                const { data: docs } = await supabase
+                // 2. Backlog Logic (Global - status is "Pendente")
+                const { data: backlogDocs } = await supabase
                     .from('doc_seg')
                     .select('*, document_info:doc(nome), unit_info:empresa(nome_unidade)')
+                    .eq('status', 'Pendente');
+
+                const pendingDocs = backlogDocs || [];
+                const backlogCount = pendingDocs.length;
+
+                // 3. Rework Logic (Time-bound)
+                const { data: reworkData } = await supabase
+                    .from('doc_seg')
+                    .select('status, data_entrega')
                     .gte('created_at', startDate)
                     .lt('created_at', endDate);
 
-                const pendingDocs = docs?.filter(d => d.status === 'Pendente' || d.status === 'em Andamento') || [];
-                const backlogCount = pendingDocs.length;
-
-                // Rework logic: doc has data_entrega (was once finished/delivered) but status is back to Pendente/Andamento
-                const reworkDocs = docs?.filter(d =>
+                // Rework: doc has data_entrega (was once finished) but status is back to Pendente/Andamento
+                const reworkDocs = reworkData?.filter(d =>
                     d.data_entrega &&
                     (d.status === 'Pendente' || d.status === 'em Andamento')
                 ) || [];
 
-                const reworkRate = docs && docs.length > 0 ? (reworkDocs.length / docs.length) * 100 : 0;
+                const reworkRate = reworkData && reworkData.length > 0 ? (reworkDocs.length / reworkData.length) * 100 : 0;
 
                 setStats({
                     slaAvg,
@@ -241,7 +247,7 @@ export const OperationalEfficiencyQuadrant: React.FC = () => {
                                                 <div className="p-1.5 bg-blue-50 rounded-md text-blue-500 flex-shrink-0">
                                                     <FileText size={14} />
                                                 </div>
-                                                <div className="truncate">
+                                                <div className="truncate min-w-0 flex-1">
                                                     <p className="font-bold text-slate-700 text-xs truncate">
                                                         {doc.document_info?.nome || doc.doc || 'Documento'}
                                                     </p>
@@ -250,9 +256,20 @@ export const OperationalEfficiencyQuadrant: React.FC = () => {
                                                     </p>
                                                 </div>
                                             </div>
-                                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase flex-shrink-0 ${doc.status === 'em Andamento' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>
-                                                {doc.status === 'em Andamento' ? 'Andm' : 'Pend'}
-                                            </span>
+
+                                            <div className="flex items-center gap-3">
+                                                {doc.prazo && (
+                                                    <div className="text-right">
+                                                        <p className="text-[9px] text-slate-400 uppercase font-bold">Prazo</p>
+                                                        <p className={`text-[10px] font-medium ${new Date(doc.prazo) < new Date() ? 'text-red-500' : 'text-slate-600'}`}>
+                                                            {new Date(doc.prazo).toLocaleDateString('pt-BR')}
+                                                        </p>
+                                                    </div>
+                                                )}
+                                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase flex-shrink-0 ${doc.status === 'em Andamento' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>
+                                                    {doc.status === 'em Andamento' ? 'Andm' : 'Pend'}
+                                                </span>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -272,6 +289,7 @@ export const OperationalEfficiencyQuadrant: React.FC = () => {
                     </div>
                 </div>
             )}
+
 
             <style>{`
                 @keyframes pulse-slow {

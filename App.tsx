@@ -12,6 +12,7 @@ const Comercial = React.lazy(() => import('./pages/Comercial').then(module => ({
 const Clientes = React.lazy(() => import('./pages/Clientes').then(module => ({ default: module.Clientes })));
 const Usuarios = React.lazy(() => import('./pages/Usuarios').then(module => ({ default: module.Usuarios })));
 const Auditoria = React.lazy(() => import('./pages/Auditoria').then(module => ({ default: module.Auditoria })));
+const Teste = React.lazy(() => import('./pages/Teste').then(module => ({ default: module.Teste })));
 const Formularios = React.lazy(() => import('./pages/Formularios').then(module => ({ default: module.Formularios })));
 const FormularioPublico = React.lazy(() => import('./pages/FormularioPublico').then(module => ({ default: module.FormularioPublico })));
 
@@ -43,6 +44,7 @@ function App() {
             <Route path="usuarios" element={<Usuarios />} />
             <Route path="auditoria" element={<Auditoria />} />
             <Route path="formularios" element={<Formularios />} />
+            <Route path="teste" element={<Teste />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

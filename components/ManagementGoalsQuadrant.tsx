@@ -113,6 +113,8 @@ export const ManagementGoalsQuadrant: React.FC = () => {
         );
     }
 
+    const totalRealized = performances.reduce((sum, mgmt) => sum + mgmt.realized, 0);
+
     return (
         <div className="bg-white/60 backdrop-blur-xl p-8 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[450px] flex flex-col">
             <div className="flex items-center justify-between mb-8">
@@ -121,9 +123,19 @@ export const ManagementGoalsQuadrant: React.FC = () => {
                         <ShieldCheck size={24} className="text-blue-500" />
                         Metas de Gerência
                     </h3>
-                    <p className="text-xs text-slate-500 mt-1">
-                        Meta Global: <span className="font-bold text-slate-700">{formatCurrency(metaReceita)}</span>
-                    </p>
+                    <div className="mt-1 space-y-1">
+                        <p className="text-xs text-slate-500">
+                            Meta Global: <span className="font-bold text-slate-700">{formatCurrency(metaReceita)}</span>
+                        </p>
+                        <p className="text-xs text-slate-500">
+                            Meta atingida: <span className={`font-bold ${totalRealized >= metaReceita ? 'text-emerald-600' : 'text-blue-600'}`}>
+                                {formatCurrency(totalRealized)}
+                                <span className="ml-1 opacity-70">
+                                    ({metaReceita > 0 ? ((totalRealized / metaReceita) * 100).toFixed(1) : 0}%)
+                                </span>
+                            </span>
+                        </p>
+                    </div>
                 </div>
                 <div className="flex items-center gap-2">
                     <button
