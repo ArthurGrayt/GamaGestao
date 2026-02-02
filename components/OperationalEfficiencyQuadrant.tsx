@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useState } from 'react';
 import { supabase } from '../services/supabase';
 import { FilterContext } from '../layouts/MainLayout';
 import { getUTCStart, getUTCEnd } from '../utils/dateUtils';
-import { Timer, ClipboardList, RefreshCw, X, FileText, Info } from 'lucide-react';
+import { Timer, ClipboardList, RefreshCw, X, FileText, Info, AlertCircle } from 'lucide-react';
 
 export const OperationalEfficiencyQuadrant: React.FC = () => {
     const filter = useContext(FilterContext);
@@ -11,6 +11,8 @@ export const OperationalEfficiencyQuadrant: React.FC = () => {
         slaAvg: 0,
         backlogCount: 0,
         reworkRate: 0,
+        criticalReworkCount: 0,
+        preventiveReworkCount: 0,
         pendingDocs: [] as any[]
     });
 
@@ -37,29 +39,18 @@ export const OperationalEfficiencyQuadrant: React.FC = () => {
                 const startDate = getUTCStart(filter.startDate);
                 const endDate = getUTCEnd(filter.endDate);
 
-                // 1. SLA Logic (agendamentos)
-                // Filter by consultorio is not null (meaning attended)
-                const { data: agendamentos } = await supabase
-                    .from('agendamentos')
-                    .select('data_atendimento, aso_liberado')
-                    .not('consultorio', 'is', null)
-                    .not('aso_liberado', 'is', null)
-                    .gte('data_atendimento', startDate)
-                    .lt('data_atendimento', endDate);
+                // 1. SLA Logic (Productivity Average)
+                // Calculate average documents delivered per day
+                const { count: entreguesCount } = await supabase
+                    .from('doc_seg')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('status', 'Entregue')
+                    .gte('data_entrega', startDate)
+                    .lt('data_entrega', endDate);
 
-                let totalTime = 0;
-                let countSLA = 0;
-
-                agendamentos?.forEach(a => {
-                    const start = new Date(a.data_atendimento).getTime();
-                    const end = new Date(a.aso_liberado).getTime();
-                    if (end > start) {
-                        totalTime += (end - start);
-                        countSLA++;
-                    }
-                });
-
-                const slaAvg = countSLA > 0 ? (totalTime / countSLA) / (1000 * 60 * 60 * 24) : 0; // Average days
+                const numDays = Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)));
+                const isDayFilter = filter.range === 'hoje' || filter.range === 'ontem';
+                const slaAvg = isDayFilter ? (entreguesCount || 0) : (entreguesCount || 0) / numDays;
 
                 // 2. Backlog Logic (Global - status is "Pendente")
                 const { data: backlogDocs } = await supabase
@@ -71,17 +62,31 @@ export const OperationalEfficiencyQuadrant: React.FC = () => {
                 const backlogCount = pendingDocs.length;
 
                 // 3. Rework Logic (Time-bound)
+                // Analyze documents within the selected period based on data_recebimento
                 const { data: reworkData } = await supabase
                     .from('doc_seg')
-                    .select('status, data_entrega')
-                    .gte('created_at', startDate)
-                    .lt('created_at', endDate);
+                    .select('status, data_entrega, prazo')
+                    .gte('data_recebimento', startDate)
+                    .lt('data_recebimento', endDate);
 
-                // Rework: doc has data_entrega (was once finished) but status is back to Pendente/Andamento
+                // Rework Detection: Has a delivery date (was finished) but current status is regression (not Entregue/Concluido)
                 const reworkDocs = reworkData?.filter(d =>
                     d.data_entrega &&
-                    (d.status === 'Pendente' || d.status === 'em Andamento')
+                    d.status !== 'Entregue' &&
+                    d.status !== 'Concluido'
                 ) || [];
+
+                const now = new Date();
+                let criticalReworkCount = 0;
+                let preventiveReworkCount = 0;
+
+                reworkDocs.forEach(doc => {
+                    if (doc.prazo && new Date(doc.prazo) < now) {
+                        criticalReworkCount++;
+                    } else {
+                        preventiveReworkCount++;
+                    }
+                });
 
                 const reworkRate = reworkData && reworkData.length > 0 ? (reworkDocs.length / reworkData.length) * 100 : 0;
 
@@ -89,6 +94,8 @@ export const OperationalEfficiencyQuadrant: React.FC = () => {
                     slaAvg,
                     backlogCount,
                     reworkRate,
+                    criticalReworkCount,
+                    preventiveReworkCount,
                     pendingDocs
                 });
 
@@ -147,11 +154,18 @@ export const OperationalEfficiencyQuadrant: React.FC = () => {
                             </div>
                             <div>
                                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">SLA de Entrega</p>
-                                <p className="text-sm text-slate-400 capitalize">Lead Time Médio</p>
+                                <p className="text-sm text-slate-400 capitalize">
+                                    {filter.range === 'hoje' || filter.range === 'ontem' ? 'Total Entregue' : 'Média de Entregas / Dia'}
+                                </p>
                             </div>
                         </div>
                         <div className="text-right">
-                            <p className="text-2xl font-bold text-slate-800">{stats.slaAvg.toFixed(1)} <span className="text-sm font-normal text-slate-500">dias</span></p>
+                            <p className="text-2xl font-bold text-slate-800">
+                                {stats.slaAvg.toFixed(stats.slaAvg < 1 && stats.slaAvg > 0 ? 2 : 1)}
+                                <span className="text-sm font-normal text-slate-500 ml-1">
+                                    {filter.range === 'hoje' || filter.range === 'ontem' ? 'docs' : 'docs/dia'}
+                                </span>
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -159,11 +173,21 @@ export const OperationalEfficiencyQuadrant: React.FC = () => {
                 {/* Backlog */}
                 <div
                     onClick={handleBacklogClick}
-                    className={`p-5 rounded-2xl cursor-pointer transition-all hover:scale-[1.02] shadow-sm transform relative group
+                    className={`p-5 rounded-2xl cursor-pointer transition-all hover:scale-[1.02] shadow-sm transform relative group group/tooltip
                         ${needsAttention
                             ? 'bg-red-50 border-red-200 hover:bg-red-100 shadow-red-100'
                             : 'bg-orange-50 border-orange-100 hover:bg-orange-100 shadow-orange-100'}`}
                 >
+                    {/* Tooltip Balloon */}
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-48 p-3 bg-slate-800/95 text-white text-[10px] rounded-2xl shadow-2xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-1000 z-[100] pointer-events-none border border-slate-700/50 backdrop-blur-md text-center">
+                        <p className="leading-relaxed font-medium">
+                            pendências totais<br />
+                            <span className="text-slate-400 font-bold">(sem filtro de data)</span>
+                        </p>
+                        {/* Triangle Arrow */}
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 w-2 h-2 bg-slate-800 rotate-45 border-r border-b border-slate-700/50" />
+                    </div>
+
                     {needsAttention && (
                         <span className="absolute -top-2 -right-2 flex h-4 w-4">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
@@ -203,11 +227,46 @@ export const OperationalEfficiencyQuadrant: React.FC = () => {
                         </div>
                         <p className="text-2xl font-bold text-blue-600">{stats.reworkRate.toFixed(1)}%</p>
                     </div>
-                    <div className="w-full bg-blue-200 rounded-full h-1.5 overflow-hidden">
+
+                    <div className="w-full bg-blue-200 rounded-full h-1.5 overflow-hidden mb-3">
                         <div
                             className="h-full bg-blue-500 rounded-full transition-all duration-1000"
                             style={{ width: `${stats.reworkRate}%` }}
                         ></div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] uppercase font-bold tracking-tighter">
+                        <div className="flex items-center gap-2 text-red-500 relative group/tooltip">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                            <div className="flex items-center gap-1 cursor-help">
+                                Crítico: {stats.criticalReworkCount}
+                                <AlertCircle size={10} className="opacity-70" />
+                            </div>
+
+                            {/* Tooltip Balloon */}
+                            <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800/95 text-white text-[9px] rounded-xl shadow-2xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-1000 z-[100] pointer-events-none border border-slate-700/50 backdrop-blur-md text-left normal-case font-medium">
+                                <p className="leading-relaxed">
+                                    Documentos que voltaram para retrabalho e já passaram do prazo original.
+                                </p>
+                                <div className="absolute top-full left-4 -mt-1 w-2 h-2 bg-slate-800 rotate-45 border-r border-b border-slate-700/50" />
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-slate-400 relative group/tooltip">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+                            <div className="flex items-center gap-1 cursor-help">
+                                Preventivo: {stats.preventiveReworkCount}
+                                <AlertCircle size={10} className="opacity-50" />
+                            </div>
+
+                            {/* Tooltip Balloon */}
+                            <div className="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-800/95 text-white text-[9px] rounded-xl shadow-2xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-1000 z-[100] pointer-events-none border border-slate-700/50 backdrop-blur-md text-left normal-case font-medium">
+                                <p className="leading-relaxed">
+                                    Documentos em retrabalho que ainda estão dentro do prazo de entrega.
+                                </p>
+                                <div className="absolute top-full right-4 -mt-1 w-2 h-2 bg-slate-800 rotate-45 border-r border-b border-slate-700/50" />
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

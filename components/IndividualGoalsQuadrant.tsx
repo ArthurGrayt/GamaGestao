@@ -214,7 +214,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                             <Info size={10} className="text-orange-500/50 cursor-help" />
 
                             {/* Tooltip Balloon */}
-                            <div className="absolute bottom-full left-0 mb-2 w-64 p-3 bg-slate-800/95 text-white text-[10px] rounded-2xl shadow-2xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-300 z-[100] pointer-events-none border border-slate-700/50 backdrop-blur-md">
+                            <div className="absolute bottom-full left-0 mb-2 w-64 p-3 bg-slate-800/95 text-white text-[10px] rounded-2xl shadow-2xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-1000 z-[100] pointer-events-none border border-slate-700/50 backdrop-blur-md">
                                 <p className="leading-relaxed">
                                     Uma forma de classificar a meta, como uma etiqueta. Ajuda a entender para que ela serve e como deve ser acompanhada.
                                     <br /><br />
