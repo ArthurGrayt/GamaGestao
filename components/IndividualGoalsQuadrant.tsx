@@ -1,129 +1,248 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from '../services/supabase';
-import { User, Plus, Edit2, Trash2, Target, ChevronRight, Save, X, CheckCircle2, Circle, RefreshCw, Info, ChevronDown } from 'lucide-react';
+import { User, Plus, Edit2, Trash2, Target, ChevronRight, Save, X, CheckCircle2, Circle, RefreshCw, Info, ChevronDown, Maximize2, ShieldAlert } from 'lucide-react';
 
 interface IndividualGoal {
     id: string;
-    collaborator: string;
-    objective: string;
+    collaborator: string; // db: colaborador
+    objective: string;    // db: descricao
+    type: string;         // db: tipo
+    created_at?: string;  // db: created_at
     targetValue?: number;
     currentValue: number;
-    type: string;
     isCompleted: boolean;
-    gut_g?: number;
-    gut_u?: number;
-    gut_t?: number;
 }
 
 export const IndividualGoalsQuadrant: React.FC = () => {
     const [users, setUsers] = useState<string[]>([]);
     const [goals, setGoals] = useState<IndividualGoal[]>([]);
-    const [editingGoal, setEditingGoal] = useState<IndividualGoal | null>(null);
-    const [loadingUsers, setLoadingUsers] = useState(false);
+    const [loading, setLoading] = useState(false);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [filteredUsers, setFilteredUsers] = useState<string[]>([]);
-    const [gutValues, setGutValues] = useState({ g: 1, u: 1, t: 1 });
-    const [isGutExpanded, setIsGutExpanded] = useState(false);
-    const [showList, setShowList] = useState(false);
     const formRef = useRef<HTMLFormElement>(null);
 
+    const [editingGoal, setEditingGoal] = useState<IndividualGoal | null>(null);
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    // Goal type dropdown state
+    const goalTypes = ['resultado', 'processo', 'aprendizado', 'qualitativo'];
+    const [filteredTypes, setFilteredTypes] = useState<string[]>(goalTypes);
+    const [showTypeDropdown, setShowTypeDropdown] = useState(false);
+
+    // Authorization state
+    const [isAuthorized, setIsAuthorized] = useState(false);
+    const [checkingAuth, setCheckingAuth] = useState(true);
+    const [currentUser, setCurrentUser] = useState<string>('');
+
+    // Check authorization
     useEffect(() => {
-        if (editingGoal) {
-            setGutValues({
-                g: editingGoal.gut_g || 1,
-                u: editingGoal.gut_u || 1,
-                t: editingGoal.gut_t || 1
-            });
-            // Auto expand if there are relevant values
-            if ((editingGoal.gut_g || 1) > 1 || (editingGoal.gut_u || 1) > 1 || (editingGoal.gut_t || 1) > 1) {
-                setIsGutExpanded(true);
+        const checkAuthorization = async () => {
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+
+                if (!session) {
+                    setIsAuthorized(false);
+                    setCheckingAuth(false);
+                    return;
+                }
+
+                const { data: userData, error } = await supabase
+                    .from('users')
+                    .select('username')
+                    .eq('user_id', session.user.id)
+                    .single();
+
+                if (error || !userData) {
+                    console.error('Error fetching user:', error);
+                    setIsAuthorized(false);
+                } else {
+                    const authorizedUsers = ['Clárison Gamarano', 'Daiane Gamarano', 'Pedro Borba'];
+                    const username = userData.username;
+                    setCurrentUser(username);
+                    setIsAuthorized(authorizedUsers.includes(username));
+                }
+            } catch (err) {
+                console.error('Authorization check error:', err);
+                setIsAuthorized(false);
+            } finally {
+                setCheckingAuth(false);
             }
-        } else {
-            setGutValues({ g: 1, u: 1, t: 1 });
-            setIsGutExpanded(false);
-        }
-    }, [editingGoal]);
+        };
+
+        checkAuthorization();
+    }, []);
 
     useEffect(() => {
-        const fetchUsers = async () => {
-            setLoadingUsers(true);
+        const fetchUserData = async () => {
+            setLoading(true);
             try {
-                const { data, error } = await supabase
+                // Fetch Users for autocomplete
+                const { data: userData, error: userError } = await supabase
                     .from('users')
                     .select('username')
                     .order('username');
 
-                if (error) throw error;
-                if (data) {
-                    setUsers(data.map(u => u.username));
+                if (userError) throw userError;
+                if (userData) {
+                    setUsers(userData.map(u => u.username));
+                }
+
+                // Fetch existing goals from Supabase
+                const { data: goalData, error: goalError } = await supabase
+                    .from('metas_usuarios')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                if (goalError) throw goalError;
+                if (goalData) {
+                    const mappedGoals: IndividualGoal[] = goalData.map(g => ({
+                        id: g.id,
+                        collaborator: g.colaborador,
+                        objective: g.descricao,
+                        type: g.tipo,
+                        created_at: g.created_at,
+                        // Defaults for fields not present in this table
+                        currentValue: 0,
+                        isCompleted: false
+                    }));
+                    setGoals(mappedGoals);
                 }
             } catch (err) {
-                console.error('Error fetching users:', err);
+                console.error('Error fetching data:', err);
             } finally {
-                setLoadingUsers(false);
+                setLoading(false);
             }
         };
-        fetchUsers();
-
-        // Load goals from local storage
-        const savedGoals = localStorage.getItem('gama_individual_goals');
-        if (savedGoals) {
-            try {
-                setGoals(JSON.parse(savedGoals));
-            } catch (e) {
-                console.error('Error loading goals from localStorage:', e);
-            }
-        }
+        fetchUserData();
     }, []);
 
-    // Save goals to local storage whenever they change
+    // No longer using localStorage as primary storage
+    /* 
     useEffect(() => {
         localStorage.setItem('gama_individual_goals', JSON.stringify(goals));
     }, [goals]);
+    */
 
-    const handleSave = (e: React.FormEvent) => {
+    const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
         const formData = new FormData(e.target as HTMLFormElement);
         const collaborator = formData.get('collaborator') as string;
         const objective = formData.get('objective') as string;
         const type = formData.get('type') as string;
-        const isCompleted = formData.get('isCompleted') === 'on';
 
-        const targetValueStr = formData.get('targetValue') as string;
-        const currentValueStr = formData.get('currentValue') as string;
+        setLoading(true);
+        try {
+            if (editingGoal) {
+                const { error } = await supabase
+                    .from('metas_usuarios')
+                    .update({
+                        colaborador: collaborator,
+                        descricao: objective,
+                        tipo: type
+                    })
+                    .eq('id', editingGoal.id);
 
-        const targetValue = targetValueStr ? Number(targetValueStr) : undefined;
-        const currentValue = currentValueStr ? Number(currentValueStr) : 0;
+                if (error) throw error;
 
-        const gut_g = Number(formData.get('gut_g')) || 1;
-        const gut_u = Number(formData.get('gut_u')) || 1;
-        const gut_t = Number(formData.get('gut_t')) || 1;
+                setGoals(prev => prev.map(g => g.id === editingGoal.id ? {
+                    ...g, collaborator, objective, type
+                } : g));
+                setEditingGoal(null);
+            } else {
+                const { data, error } = await supabase
+                    .from('metas_usuarios')
+                    .insert([{
+                        colaborador: collaborator,
+                        descricao: objective,
+                        tipo: type
+                    }])
+                    .select()
+                    .single();
 
-        if (editingGoal) {
-            setGoals(prev => prev.map(g => g.id === editingGoal.id ? {
-                ...g, collaborator, objective, targetValue, currentValue, type, isCompleted,
-                gut_g, gut_u, gut_t
-            } : g));
-            setEditingGoal(null);
-        } else {
-            setGoals(prev => [{
-                id: Math.random().toString(36).substr(2, 9),
-                collaborator, objective, targetValue, currentValue, type, isCompleted,
-                gut_g, gut_u, gut_t
-            }, ...prev]);
+                if (error) throw error;
+
+                if (data) {
+                    setGoals(prev => [{
+                        id: data.id,
+                        collaborator: data.colaborador,
+                        objective: data.descricao,
+                        type: data.tipo,
+                        created_at: data.created_at,
+                        currentValue: 0,
+                        isCompleted: false
+                    }, ...prev]);
+                }
+            }
+            formRef.current?.reset();
+        } catch (err) {
+            console.error('Error saving goal:', err);
+            alert('Erro ao salvar meta no banco de dados.');
+        } finally {
+            setLoading(false);
         }
-        setIsGutExpanded(false);
-        formRef.current?.reset();
     };
 
-    const handleDelete = (id: string) => {
-        setGoals(prev => prev.filter(g => g.id !== id));
-        if (editingGoal?.id === id) setEditingGoal(null);
+    const handleDelete = async (id: string) => {
+        setLoading(true);
+        try {
+            const { error } = await supabase
+                .from('metas_usuarios')
+                .delete()
+                .eq('id', id);
+
+            if (error) throw error;
+
+            setGoals(prev => prev.filter(g => g.id !== id));
+            if (editingGoal?.id === id) setEditingGoal(null);
+        } catch (err) {
+            console.error('Error deleting goal:', err);
+            alert('Erro ao excluir meta do banco de dados.');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const toggleGoalStatus = (id: string) => {
+        // Since is_completed is not in DB yet, this will only be local
         setGoals(prev => prev.map(g => g.id === id ? { ...g, isCompleted: !g.isCompleted } : g));
     };
+
+    // Loading state
+    if (checkingAuth) {
+        return (
+            <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[450px] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-3">
+                    <RefreshCw size={32} className="text-purple-500 animate-spin" />
+                    <p className="text-sm text-slate-500 font-medium">Verificando permissões...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // Access denied state
+    if (!isAuthorized) {
+        return (
+            <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[450px] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4 max-w-sm text-center">
+                    <div className="bg-orange-50 text-orange-500 w-16 h-16 rounded-2xl flex items-center justify-center">
+                        <ShieldAlert size={32} />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-bold text-slate-800 mb-2">Acesso Restrito</h3>
+                        <p className="text-sm text-slate-500 leading-relaxed">
+                            Este quadrante está disponível apenas para usuários autorizados a atribuir metas individuais.
+                        </p>
+                        {currentUser && (
+                            <p className="text-xs text-slate-400 mt-3 italic">
+                                Usuário atual: {currentUser}
+                            </p>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[450px] flex flex-col relative">
@@ -135,24 +254,26 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                         Metas p/ Indivíduo
                     </h3>
                 </div>
-                {editingGoal && (
-                    <button
-                        onClick={() => {
-                            setEditingGoal(null);
-                            formRef.current?.reset();
-                        }}
-                        className="text-[10px] font-bold text-red-500 uppercase flex items-center gap-1 hover:bg-red-50 px-2 py-1 rounded-lg transition-all"
-                    >
-                        <X size={12} /> Cancelar Edição
-                    </button>
-                )}
+                <div className="flex items-center gap-2">
+                    {editingGoal && (
+                        <button
+                            onClick={() => {
+                                setEditingGoal(null);
+                                formRef.current?.reset();
+                            }}
+                            className="text-[10px] font-bold text-red-500 uppercase flex items-center gap-1 hover:bg-red-50 px-2 py-1 rounded-lg transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]"
+                        >
+                            <X size={12} /> Cancelar Edição
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Quick Form Section */}
             <form
                 ref={formRef}
                 onSubmit={handleSave}
-                className="bg-white/40 border border-white/60 p-4 rounded-2xl mb-4 space-y-3 flex-shrink-0"
+                className="bg-white/40 border border-white/60 p-4 rounded-2xl mb-4 space-y-3 flex-shrink-0 transition-all duration-700 ease-[cubic-bezier(0.4,0,0.2,1)] hover:bg-white/50"
             >
                 <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
@@ -164,7 +285,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                 name="collaborator"
                                 required
                                 autoComplete="off"
-                                className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]"
                                 placeholder="Pesquisar..."
                                 defaultValue={editingGoal?.collaborator || ''}
                                 key={editingGoal?.id || 'new'}
@@ -181,7 +302,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                 onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} // Delay to allow click
                             />
                             {showSuggestions && (
-                                <div className="absolute top-full left-0 w-full mt-1 bg-white/90 backdrop-blur-md border border-slate-200 rounded-xl shadow-xl max-h-[120px] overflow-y-auto z-50 custom-scrollbar">
+                                <div className="absolute top-full left-0 w-full mt-2 bg-white/90 backdrop-blur-md border border-slate-200 rounded-xl shadow-xl max-h-[120px] overflow-y-auto z-50 custom-scrollbar animate-in fade-in zoom-in-95 duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]">
                                     {filteredUsers.length > 0 ? (
                                         filteredUsers.map(user => (
                                             <div
@@ -214,7 +335,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                             <Info size={10} className="text-orange-500/50 cursor-help" />
 
                             {/* Tooltip Balloon */}
-                            <div className="absolute bottom-full left-0 mb-2 w-64 p-3 bg-slate-800/95 text-white text-[10px] rounded-2xl shadow-2xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-1000 z-[100] pointer-events-none border border-slate-700/50 backdrop-blur-md">
+                            <div className="absolute bottom-full left-0 mb-3 w-64 p-3 bg-slate-800/95 text-white text-[10px] rounded-2xl shadow-2xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-700 ease-[cubic-bezier(0.4,0,0.2,1)] z-[100] pointer-events-none border border-slate-700/50 backdrop-blur-md translate-y-2 group-hover/tooltip:translate-y-0">
                                 <p className="leading-relaxed">
                                     Uma forma de classificar a meta, como uma etiqueta. Ajuda a entender para que ela serve e como deve ser acompanhada.
                                     <br /><br />
@@ -228,15 +349,54 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                 <div className="absolute top-full left-4 -mt-1 w-2 h-2 bg-slate-800 rotate-45 border-r border-b border-slate-700/50" />
                             </div>
                         </div>
-                        <input
-                            name="type"
-                            type="text"
-                            required
-                            className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                            placeholder=""
-                            defaultValue={editingGoal?.type}
-                            key={`type-${editingGoal?.id || 'new'}`}
-                        />
+                        <div className="relative">
+                            <input
+                                name="type"
+                                type="text"
+                                required
+                                autoComplete="off"
+                                className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]"
+                                placeholder="Pesquisar..."
+                                defaultValue={editingGoal?.type}
+                                key={`type-${editingGoal?.id || 'new'}`}
+                                onChange={(e) => {
+                                    const value = e.target.value.toLowerCase();
+                                    const filtered = goalTypes.filter(t => t.toLowerCase().includes(value));
+                                    setFilteredTypes(filtered);
+                                    setShowTypeDropdown(true);
+                                }}
+                                onFocus={() => {
+                                    setFilteredTypes(goalTypes);
+                                    setShowTypeDropdown(true);
+                                }}
+                                onBlur={() => setTimeout(() => setShowTypeDropdown(false), 200)}
+                            />
+                            {showTypeDropdown && (
+                                <div className="absolute top-full left-0 w-full mt-2 bg-white/90 backdrop-blur-md border border-slate-200 rounded-xl shadow-xl max-h-[120px] overflow-y-auto z-50 custom-scrollbar animate-in fade-in zoom-in-95 duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]">
+                                    {filteredTypes.length > 0 ? (
+                                        filteredTypes.map(type => (
+                                            <div
+                                                key={type}
+                                                className="px-3 py-2 text-xs text-slate-700 hover:bg-blue-50 cursor-pointer transition-colors border-b border-slate-100/50 last:border-0 capitalize"
+                                                onClick={() => {
+                                                    const input = document.querySelector('input[name="type"]') as HTMLInputElement;
+                                                    if (input) {
+                                                        input.value = type;
+                                                    }
+                                                    setShowTypeDropdown(false);
+                                                }}
+                                            >
+                                                {type}
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="px-3 py-2 text-[10px] text-slate-400 italic text-center">
+                                            Nenhum encontrado
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -247,7 +407,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                             name="objective"
                             type="text"
                             required
-                            className="flex-1 bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                            className="flex-1 bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]"
                             placeholder="Descreva a meta..."
                             defaultValue={editingGoal?.objective}
                             key={`obj-${editingGoal?.id || 'new'}`}
@@ -255,119 +415,134 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                     </div>
                 </div>
 
-                {/* GUT Matrix Section */}
-                <div className="bg-slate-50/50 rounded-xl border border-slate-100 overflow-hidden transition-all duration-300">
-                    <div
-                        onClick={() => setIsGutExpanded(!isGutExpanded)}
-                        className={`flex items-center justify-between cursor-pointer hover:bg-slate-100/50 transition-colors ${isGutExpanded ? 'p-3 border-b border-slate-100' : 'p-2'}`}
+                <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 hover:shadow-xl hover:-translate-y-0.5 transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {loading ? <RefreshCw size={14} className="animate-spin" /> : (editingGoal ? <Save size={14} /> : <Plus size={14} />)}
+                    {editingGoal ? 'Salvar Alterações' : 'Adicionar Meta'}
+                </button>
+            </form>
+
+            {/* View Goals Section (Always Visible) */}
+            <div className="flex-1 flex flex-col min-h-0">
+                <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-white/50 rounded-t-2xl">
+                    <p className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                        <Target size={12} className="text-purple-500" />
+                        Lista de Metas ({goals.length})
+                    </p>
+                    <button
+                        onClick={() => setIsExpanded(true)}
+                        className="p-1 px-2 hover:bg-slate-100 text-slate-400 hover:text-blue-600 rounded-lg transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] flex items-center gap-1.5 active:scale-95 group/expand"
+                        title="Expandir visualização"
                     >
-                        <p className="text-[9px] font-bold text-slate-400 uppercase flex items-center gap-2">
-                            Prioridade (GUT)
-                            {!isGutExpanded && (
-                                <span className={`text-[8px] font-normal normal-case px-1.5 py-0.5 rounded border transition-colors ${(gutValues.g || 1) * (gutValues.u || 1) * (gutValues.t || 1) > 45 ? 'bg-orange-100 text-orange-600 border-orange-200' :
-                                    'bg-white text-slate-400 border-slate-100'
-                                    }`}>
-                                    Score: {(gutValues.g || 1) * (gutValues.u || 1) * (gutValues.t || 1)}
-                                </span>
-                            )}
-                        </p>
-                        <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${isGutExpanded ? 'rotate-180' : ''}`} />
-                    </div>
+                        <span className="text-[9px] font-bold uppercase opacity-0 group-hover/expand:opacity-100 transition-opacity duration-500">Expandir</span>
+                        <Maximize2 size={13} className="group-hover/expand:scale-110 transition-transform duration-500" />
+                    </button>
+                </div>
 
-                    {isGutExpanded && (
-                        <div className="px-3 py-3 space-y-4 animate-in slide-in-from-top-2 duration-300">
-                            <div className="flex justify-end mb-2">
-                                <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${(gutValues.g || 1) * (gutValues.u || 1) * (gutValues.t || 1) > 45 ? 'bg-orange-100 text-orange-600 border-orange-200' :
-                                    'bg-white text-slate-500 border-slate-100'
-                                    }`}>
-                                    Total Score: {(gutValues.g || 1) * (gutValues.u || 1) * (gutValues.t || 1)}
-                                </span>
-                            </div>
+                <div className="flex-1 overflow-y-auto p-3 custom-scrollbar space-y-3 bg-slate-50/50 rounded-b-2xl border-x border-b border-slate-100">
+                    {goals.map((goal, idx) => {
+                        const colors = [
+                            'from-purple-500 to-purple-600',
+                            'from-blue-500 to-blue-600',
+                            'from-indigo-500 to-indigo-600',
+                            'from-pink-500 to-pink-600'
+                        ];
+                        const color = colors[idx % colors.length];
 
-                            {[
-                                { label: 'Gravidade', name: 'gut_g', tip: 'Impacto do problema', val: gutValues.g, set: (v: number) => setGutValues(prev => ({ ...prev, g: v })) },
-                                { label: 'Urgência', name: 'gut_u', tip: 'Prazo para resolver', val: gutValues.u, set: (v: number) => setGutValues(prev => ({ ...prev, u: v })) },
-                                { label: 'Tendência', name: 'gut_t', tip: 'Piora se não agir', val: gutValues.t, set: (v: number) => setGutValues(prev => ({ ...prev, t: v })) }
-                            ].map((field) => (
-                                <div key={field.name} className="space-y-1 relative">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <label className="text-[9px] font-bold text-slate-500 uppercase ml-1" title={field.tip}>{field.label}</label>
-                                        <span className={`text-[10px] font-bold ${field.val >= 5 ? 'text-red-500' :
-                                            field.val >= 3 ? 'text-orange-500' : 'text-green-500'
-                                            }`}>{field.val}</span>
-                                    </div>
-                                    <div className="relative h-2 w-full rounded-full bg-gradient-to-r from-emerald-400 via-yellow-400 to-red-500">
-                                        <input
-                                            type="range"
-                                            name={field.name}
-                                            min="1"
-                                            max="5"
-                                            step="1"
-                                            value={field.val}
-                                            onChange={(e) => field.set(Number(e.target.value))}
-                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                                        />
-                                        {/* Custom Thumb Indicator Position */}
+                        return (
+                            <div key={goal.id} className="group relative bg-white/50 backdrop-blur-sm p-3 rounded-2xl border border-white hover:border-slate-200 transition-all shadow-sm">
+                                <div className="flex justify-between items-center gap-3">
+                                    <div className="flex items-center gap-3 min-w-0">
                                         <div
-                                            className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 border-slate-200 rounded-full shadow-sm pointer-events-none transition-all duration-75"
-                                            style={{ left: `calc(${((field.val - 1) / 4) * 100}% - 8px)` }}
-                                        />
+                                            onClick={() => toggleGoalStatus(goal.id)}
+                                            className={`w-8 h-8 rounded-xl bg-gradient-to-br ${goal.isCompleted ? 'from-emerald-400 to-emerald-600' : color} flex items-center justify-center text-white shadow-sm transition-all flex-shrink-0 cursor-pointer`}
+                                        >
+                                            {goal.isCompleted ? <CheckCircle2 size={14} /> : <User size={14} />}
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className={`text-[11px] font-bold tracking-tight truncate ${goal.isCompleted ? 'text-emerald-700/60 line-through' : 'text-slate-800'}`}>
+                                                {goal.objective}
+                                            </p>
+                                            <div className="flex items-center gap-1.5 mt-0.5">
+                                                <span className="text-[9px] font-medium text-slate-400">{goal.type}</span>
+                                                <span className="w-0.5 h-0.5 rounded-full bg-slate-300" />
+                                                <span className="text-[9px] font-bold text-slate-400 uppercase truncate max-w-[60px]">{goal.collaborator}</span>
+                                                {goal.created_at && (
+                                                    <>
+                                                        <span className="w-0.5 h-0.5 rounded-full bg-slate-300" />
+                                                        <span className="text-[9px] font-medium text-slate-400 italic">
+                                                            {new Date(goal.created_at).toLocaleDateString('pt-BR')}
+                                                        </span>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="flex justify-between px-0.5 mt-1">
-                                        <span className="text-[7px] text-slate-400 font-medium uppercase">Baixo</span>
-                                        <span className="text-[7px] text-slate-400 font-medium uppercase">Alto</span>
+
+                                    <div className="flex items-center gap-3 flex-shrink-0">
+                                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] translate-x-2 group-hover:translate-x-0">
+                                            <button
+                                                onClick={() => {
+                                                    setEditingGoal(goal);
+                                                }}
+                                                className="p-1 hover:bg-blue-50 text-slate-400 hover:text-blue-500 rounded-lg transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]"
+                                            >
+                                                <Edit2 size={12} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(goal.id)}
+                                                className="p-1 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]"
+                                            >
+                                                <Trash2 size={12} />
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
-                            ))}
+                            </div>
+                        );
+                    })}
+
+                    {goals.length === 0 && (
+                        <div className="text-center py-6 text-slate-300">
+                            <Target size={24} className="mx-auto mb-1 opacity-20" />
+                            <p className="text-[9px] font-bold uppercase tracking-wider">Nenhuma meta encontrada</p>
                         </div>
                     )}
                 </div>
+            </div>
 
-                <button
-                    type="submit"
-                    className="w-full bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all flex items-center justify-center gap-1.5"
-                >
-                    {editingGoal ? <Save size={14} /> : <Plus size={14} />}
-                    {editingGoal ? 'Salvar Alterações' : 'Adicionar Meta'}
-                </button>
-
-                {/* Content removed to simplify UI as requested */}
-            </form>
-
-            {/* View Goals Toggle / Card */}
-            <div className="mt-auto">
-                {!showList ? (
-                    <button
-                        onClick={() => setShowList(true)}
-                        className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between group hover:bg-slate-100 transition-all"
-                    >
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 rounded-xl bg-purple-100 text-purple-600 group-hover:scale-110 transition-transform">
-                                <Target size={18} />
+            {/* Modal de Visualização Expandida (Portal) */}
+            {isExpanded && createPortal(
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8 animate-in fade-in duration-1000">
+                    <div
+                        className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-all duration-1000"
+                        onClick={() => setIsExpanded(false)}
+                    />
+                    <div className="relative w-full max-w-5xl bg-white/90 backdrop-blur-3xl rounded-[40px] shadow-[0_32px_128px_-12px_rgba(0,0,0,0.3)] border border-white/50 flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-1000 ease-[cubic-bezier(0.16,1,0.3,1)]">
+                        {/* Modal Header */}
+                        <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-white/40 backdrop-blur-xl">
+                            <div className="flex items-center gap-3">
+                                <div className="p-3 rounded-2xl bg-purple-100 text-purple-600">
+                                    <Target size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold text-slate-800">Visualização de Metas</h3>
+                                    <p className="text-xs text-slate-500 font-medium">{goals.length} meta(s) registradas</p>
+                                </div>
                             </div>
-                            <div className="text-left">
-                                <p className="text-xs font-bold text-slate-700">Mostrar Metas</p>
-                                <p className="text-[10px] text-slate-500">{goals.length} meta(s) cadastrada(s)</p>
-                            </div>
-                        </div>
-                        <ChevronRight size={16} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
-                    </button>
-                ) : (
-                    <div className="bg-slate-50/80 rounded-2xl border border-slate-100 flex flex-col max-h-[220px] animate-in slide-in-from-bottom-2 duration-300">
-                        <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-white/50">
-                            <p className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
-                                <Target size={12} className="text-purple-500" />
-                                Lista de Metas
-                            </p>
                             <button
-                                onClick={() => setShowList(false)}
-                                className="text-[10px] font-bold text-blue-600 hover:text-blue-700 transition-colors px-2 py-1"
+                                onClick={() => setIsExpanded(false)}
+                                className="p-3 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-2xl transition-all duration-500"
                             >
-                                Ocultar
+                                <X size={20} />
                             </button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-3 custom-scrollbar space-y-3">
+                        {/* Modal Content */}
+                        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar grid grid-cols-1 md:grid-cols-2 gap-4">
                             {goals.map((goal, idx) => {
                                 const colors = [
                                     'from-purple-500 to-purple-600',
@@ -378,72 +553,59 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                 const color = colors[idx % colors.length];
 
                                 return (
-                                    <div key={goal.id} className="group relative bg-white/50 backdrop-blur-sm p-3 rounded-2xl border border-white hover:border-slate-200 transition-all shadow-sm">
-                                        <div className="flex justify-between items-center gap-3">
-                                            <div className="flex items-center gap-3 min-w-0">
+                                    <div key={goal.id} className="group relative bg-white border border-slate-100 p-4 rounded-3xl hover:border-purple-200 hover:shadow-xl hover:shadow-purple-100/50 transition-all duration-500">
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div className="flex items-start gap-4 flex-1">
                                                 <div
                                                     onClick={() => toggleGoalStatus(goal.id)}
-                                                    className={`w-8 h-8 rounded-xl bg-gradient-to-br ${goal.isCompleted ? 'from-emerald-400 to-emerald-600' : color} flex items-center justify-center text-white shadow-sm transition-all flex-shrink-0 cursor-pointer`}
+                                                    className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${goal.isCompleted ? 'from-emerald-400 to-emerald-600' : color} flex items-center justify-center text-white shadow-lg transition-all flex-shrink-0 cursor-pointer hover:scale-110 active:scale-95`}
                                                 >
-                                                    {goal.isCompleted ? <CheckCircle2 size={14} /> : <User size={14} />}
+                                                    {goal.isCompleted ? <CheckCircle2 size={24} /> : <User size={24} />}
                                                 </div>
-                                                <div className="min-w-0">
-                                                    <p className={`text-[11px] font-bold tracking-tight truncate ${goal.isCompleted ? 'text-emerald-700/60 line-through' : 'text-slate-800'}`}>
+                                                <div className="min-w-0 pt-0.5">
+                                                    <p className={`text-sm font-bold leading-tight ${goal.isCompleted ? 'text-emerald-700/60 line-through' : 'text-slate-800'}`}>
                                                         {goal.objective}
                                                     </p>
-                                                    <div className="flex items-center gap-1.5 mt-0.5">
-                                                        <span className="text-[9px] font-medium text-slate-400">{goal.type}</span>
-                                                        <span className="w-0.5 h-0.5 rounded-full bg-slate-300" />
-                                                        <span className="text-[9px] font-bold text-slate-400 uppercase truncate max-w-[60px]">{goal.collaborator}</span>
+                                                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                                                        <span className="px-2 py-0.5 rounded-full bg-slate-100 text-[10px] font-bold text-slate-500 uppercase tracking-wider">{goal.type}</span>
+                                                        <span className="px-2 py-0.5 rounded-full bg-purple-50 text-[10px] font-bold text-purple-600 uppercase tracking-wider">{goal.collaborator}</span>
+                                                        {goal.created_at && (
+                                                            <span className="text-[10px] font-medium text-slate-400 italic">
+                                                                Criado em: {new Date(goal.created_at).toLocaleDateString('pt-BR')}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            <div className="flex items-center gap-3 flex-shrink-0">
-                                                <div className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase text-center min-w-[32px]
-                                                    ${(goal.gut_g || 1) * (goal.gut_u || 1) * (goal.gut_t || 1) > 90 ? 'bg-red-100 text-red-600' :
-                                                        (goal.gut_g || 1) * (goal.gut_u || 1) * (goal.gut_t || 1) > 45 ? 'bg-orange-100 text-orange-600' :
-                                                            'bg-green-100 text-green-600'
-                                                    }`}
+                                            <div className="flex flex-col gap-2">
+                                                <button
+                                                    onClick={() => {
+                                                        setEditingGoal(goal);
+                                                        setIsExpanded(false);
+                                                    }}
+                                                    className="p-2 hover:bg-blue-50 text-slate-400 hover:text-blue-500 rounded-xl transition-all duration-500"
+                                                    title="Editar"
                                                 >
-                                                    {(goal.gut_g || 1) * (goal.gut_u || 1) * (goal.gut_t || 1)}
-                                                </div>
-
-                                                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button
-                                                        onClick={() => {
-                                                            setEditingGoal(goal);
-                                                            // When editing, we might want to stay in list or close it. 
-                                                            // Usually, for space, we might close the list to show the form.
-                                                            setShowList(false);
-                                                        }}
-                                                        className="p-1 hover:bg-blue-50 text-slate-400 hover:text-blue-500 rounded-lg transition-colors"
-                                                    >
-                                                        <Edit2 size={12} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDelete(goal.id)}
-                                                        className="p-1 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
-                                                    >
-                                                        <Trash2 size={12} />
-                                                    </button>
-                                                </div>
+                                                    <Edit2 size={16} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDelete(goal.id)}
+                                                    className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-xl transition-all duration-500"
+                                                    title="Excluir"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
                                             </div>
                                         </div>
                                     </div>
                                 );
                             })}
-
-                            {goals.length === 0 && (
-                                <div className="text-center py-6 text-slate-300">
-                                    <Target size={24} className="mx-auto mb-1 opacity-20" />
-                                    <p className="text-[9px] font-bold uppercase tracking-wider">Nenhuma meta encontrada</p>
-                                </div>
-                            )}
                         </div>
                     </div>
-                )}
-            </div>
+                </div>,
+                document.body
+            )}
 
             <style>{`
                 .custom-scrollbar::-webkit-scrollbar {
@@ -460,6 +622,6 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                     background: #cbd5e1;
                 }
             `}</style>
-        </div>
+        </div >
     );
 };
