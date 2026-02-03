@@ -9,6 +9,7 @@ interface IndividualGoal {
     objective: string;    // db: descricao
     type: string;         // db: tipo
     created_at?: string;  // db: created_at
+    deadline?: string;    // db: data_limite
     targetValue?: number;
     currentValue: number;
     isCompleted: boolean;
@@ -95,7 +96,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                 // Fetch existing goals from Supabase
                 const { data: goalData, error: goalError } = await supabase
                     .from('metas_usuarios')
-                    .select('*')
+                    .select('id, colaborador, descricao, tipo, created_at, data_limite')
                     .order('created_at', { ascending: false });
 
                 if (goalError) throw goalError;
@@ -106,7 +107,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                         objective: g.descricao,
                         type: g.tipo,
                         created_at: g.created_at,
-                        // Defaults for fields not present in this table
+                        deadline: g.data_limite,
                         currentValue: 0,
                         isCompleted: false
                     }));
@@ -130,10 +131,16 @@ export const IndividualGoalsQuadrant: React.FC = () => {
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
-        const formData = new FormData(e.target as HTMLFormElement);
+        const formData = new FormData(e.currentTarget as HTMLFormElement);
         const collaborator = formData.get('collaborator') as string;
         const objective = formData.get('objective') as string;
         const type = formData.get('type') as string;
+        const deadline = formData.get('deadline') as string;
+
+        if (!collaborator || !objective || !type) {
+            alert('Preencha todos os campos obrigatórios.');
+            return;
+        }
 
         setLoading(true);
         try {
@@ -143,14 +150,15 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                     .update({
                         colaborador: collaborator,
                         descricao: objective,
-                        tipo: type
+                        tipo: type,
+                        data_limite: deadline || null
                     })
                     .eq('id', editingGoal.id);
 
                 if (error) throw error;
 
                 setGoals(prev => prev.map(g => g.id === editingGoal.id ? {
-                    ...g, collaborator, objective, type
+                    ...g, collaborator, objective, type, deadline: deadline || undefined
                 } : g));
                 setEditingGoal(null);
             } else {
@@ -159,7 +167,8 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                     .insert([{
                         colaborador: collaborator,
                         descricao: objective,
-                        tipo: type
+                        tipo: type,
+                        data_limite: deadline || null
                     }])
                     .select()
                     .single();
@@ -173,6 +182,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                         objective: data.descricao,
                         type: data.tipo,
                         created_at: data.created_at,
+                        deadline: data.data_limite,
                         currentValue: 0,
                         isCompleted: false
                     }, ...prev]);
@@ -404,17 +414,29 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="space-y-1">
-                    <label className="text-[9px] font-bold text-slate-400 uppercase ml-1">Objetivo (Meta)</label>
-                    <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 uppercase ml-1">Objetivo (Meta)</label>
+                        <div className="flex gap-2">
+                            <input
+                                name="objective"
+                                type="text"
+                                required
+                                className="flex-1 bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]"
+                                placeholder="Descreva a meta..."
+                                defaultValue={editingGoal?.objective}
+                                key={`obj-${editingGoal?.id || 'new'}`}
+                            />
+                        </div>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 uppercase ml-1">Data Limite</label>
                         <input
-                            name="objective"
-                            type="text"
-                            required
-                            className="flex-1 bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]"
-                            placeholder="Descreva a meta..."
-                            defaultValue={editingGoal?.objective}
-                            key={`obj-${editingGoal?.id || 'new'}`}
+                            name="deadline"
+                            type="date"
+                            className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] [color-scheme:light]"
+                            defaultValue={editingGoal?.deadline}
+                            key={`deadline-${editingGoal?.id || 'new'}`}
                         />
                     </div>
                 </div>
@@ -474,11 +496,11 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                                 <span className="text-[9px] font-medium text-slate-400">{goal.type}</span>
                                                 <span className="w-0.5 h-0.5 rounded-full bg-slate-300" />
                                                 <span className="text-[9px] font-bold text-slate-400 uppercase truncate max-w-[60px]">{goal.collaborator}</span>
-                                                {goal.created_at && (
+                                                {goal.deadline && (
                                                     <>
                                                         <span className="w-0.5 h-0.5 rounded-full bg-slate-300" />
-                                                        <span className="text-[9px] font-medium text-slate-400 italic">
-                                                            {new Date(goal.created_at).toLocaleDateString('pt-BR')}
+                                                        <span className="text-[9px] font-semibold text-orange-500">
+                                                            ⏰ {new Date(goal.deadline).toLocaleDateString('pt-BR')}
                                                         </span>
                                                     </>
                                                 )}
@@ -516,100 +538,107 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                         </div>
                     )}
                 </div>
-            </div>
+            </div >
 
             {/* Modal de Visualização Expandida (Portal) */}
-            {isExpanded && createPortal(
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8 animate-in fade-in duration-1000">
-                    <div
-                        className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-all duration-1000"
-                        onClick={() => setIsExpanded(false)}
-                    />
-                    <div className="relative w-full max-w-5xl bg-white/90 backdrop-blur-3xl rounded-[40px] shadow-[0_32px_128px_-12px_rgba(0,0,0,0.3)] border border-white/50 flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-1000 ease-[cubic-bezier(0.16,1,0.3,1)]">
-                        {/* Modal Header */}
-                        <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-white/40 backdrop-blur-xl">
-                            <div className="flex items-center gap-3">
-                                <div className="p-3 rounded-2xl bg-purple-100 text-purple-600">
-                                    <Target size={24} />
+            {
+                isExpanded && createPortal(
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8 animate-in fade-in duration-1000">
+                        <div
+                            className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-all duration-1000"
+                            onClick={() => setIsExpanded(false)}
+                        />
+                        <div className="relative w-full max-w-5xl bg-white/90 backdrop-blur-3xl rounded-[40px] shadow-[0_32px_128px_-12px_rgba(0,0,0,0.3)] border border-white/50 flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-1000 ease-[cubic-bezier(0.16,1,0.3,1)]">
+                            {/* Modal Header */}
+                            <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-white/40 backdrop-blur-xl">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-3 rounded-2xl bg-purple-100 text-purple-600">
+                                        <Target size={24} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-xl font-bold text-slate-800">Visualização de Metas</h3>
+                                        <p className="text-xs text-slate-500 font-medium">{goals.length} meta(s) registradas</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <h3 className="text-xl font-bold text-slate-800">Visualização de Metas</h3>
-                                    <p className="text-xs text-slate-500 font-medium">{goals.length} meta(s) registradas</p>
-                                </div>
+                                <button
+                                    onClick={() => setIsExpanded(false)}
+                                    className="p-3 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-2xl transition-all duration-500"
+                                >
+                                    <X size={20} />
+                                </button>
                             </div>
-                            <button
-                                onClick={() => setIsExpanded(false)}
-                                className="p-3 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-2xl transition-all duration-500"
-                            >
-                                <X size={20} />
-                            </button>
-                        </div>
 
-                        {/* Modal Content */}
-                        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {goals.map((goal, idx) => {
-                                const colors = [
-                                    'from-purple-500 to-purple-600',
-                                    'from-blue-500 to-blue-600',
-                                    'from-indigo-500 to-indigo-600',
-                                    'from-pink-500 to-pink-600'
-                                ];
-                                const color = colors[idx % colors.length];
+                            {/* Modal Content */}
+                            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {goals.map((goal, idx) => {
+                                    const colors = [
+                                        'from-purple-500 to-purple-600',
+                                        'from-blue-500 to-blue-600',
+                                        'from-indigo-500 to-indigo-600',
+                                        'from-pink-500 to-pink-600'
+                                    ];
+                                    const color = colors[idx % colors.length];
 
-                                return (
-                                    <div key={goal.id} className="group relative bg-white border border-slate-100 p-4 rounded-3xl hover:border-purple-200 hover:shadow-xl hover:shadow-purple-100/50 transition-all duration-500">
-                                        <div className="flex items-start justify-between gap-4">
-                                            <div className="flex items-start gap-4 flex-1">
-                                                <div
-                                                    onClick={() => toggleGoalStatus(goal.id)}
-                                                    className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${goal.isCompleted ? 'from-emerald-400 to-emerald-600' : color} flex items-center justify-center text-white shadow-lg transition-all flex-shrink-0 cursor-pointer hover:scale-110 active:scale-95`}
-                                                >
-                                                    {goal.isCompleted ? <CheckCircle2 size={24} /> : <User size={24} />}
-                                                </div>
-                                                <div className="min-w-0 pt-0.5">
-                                                    <p className={`text-sm font-bold leading-tight ${goal.isCompleted ? 'text-emerald-700/60 line-through' : 'text-slate-800'}`}>
-                                                        {goal.objective}
-                                                    </p>
-                                                    <div className="flex flex-wrap items-center gap-2 mt-2">
-                                                        <span className="px-2 py-0.5 rounded-full bg-slate-100 text-[10px] font-bold text-slate-500 uppercase tracking-wider">{goal.type}</span>
-                                                        <span className="px-2 py-0.5 rounded-full bg-purple-50 text-[10px] font-bold text-purple-600 uppercase tracking-wider">{goal.collaborator}</span>
-                                                        {goal.created_at && (
-                                                            <span className="text-[10px] font-medium text-slate-400 italic">
-                                                                Criado em: {new Date(goal.created_at).toLocaleDateString('pt-BR')}
-                                                            </span>
-                                                        )}
+                                    return (
+                                        <div key={goal.id} className="group relative bg-white border border-slate-100 p-4 rounded-3xl hover:border-purple-200 hover:shadow-xl hover:shadow-purple-100/50 transition-all duration-500">
+                                            <div className="flex items-start justify-between gap-4">
+                                                <div className="flex items-start gap-4 flex-1">
+                                                    <div
+                                                        onClick={() => toggleGoalStatus(goal.id)}
+                                                        className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${goal.isCompleted ? 'from-emerald-400 to-emerald-600' : color} flex items-center justify-center text-white shadow-lg transition-all flex-shrink-0 cursor-pointer hover:scale-110 active:scale-95`}
+                                                    >
+                                                        {goal.isCompleted ? <CheckCircle2 size={24} /> : <User size={24} />}
+                                                    </div>
+                                                    <div className="min-w-0 pt-0.5">
+                                                        <p className={`text-sm font-bold leading-tight ${goal.isCompleted ? 'text-emerald-700/60 line-through' : 'text-slate-800'}`}>
+                                                            {goal.objective}
+                                                        </p>
+                                                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                                                            <span className="px-2 py-0.5 rounded-full bg-slate-100 text-[10px] font-bold text-slate-500 uppercase tracking-wider">{goal.type}</span>
+                                                            <span className="px-2 py-0.5 rounded-full bg-purple-50 text-[10px] font-bold text-purple-600 uppercase tracking-wider">{goal.collaborator}</span>
+                                                            {goal.created_at && (
+                                                                <span className="text-[10px] font-medium text-slate-400 italic">
+                                                                    Criado em: {new Date(goal.created_at).toLocaleDateString('pt-BR')}
+                                                                </span>
+                                                            )}
+                                                            {goal.deadline && (
+                                                                <span className="px-2 py-0.5 rounded-full bg-orange-50 text-[10px] font-bold text-orange-600 flex items-center gap-1">
+                                                                    ⏰ {new Date(goal.deadline).toLocaleDateString('pt-BR')}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
 
-                                            <div className="flex flex-col gap-2">
-                                                <button
-                                                    onClick={() => {
-                                                        setEditingGoal(goal);
-                                                        setIsExpanded(false);
-                                                    }}
-                                                    className="p-2 hover:bg-blue-50 text-slate-400 hover:text-blue-500 rounded-xl transition-all duration-500"
-                                                    title="Editar"
-                                                >
-                                                    <Edit2 size={16} />
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDelete(goal.id)}
-                                                    className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-xl transition-all duration-500"
-                                                    title="Excluir"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
+                                                <div className="flex flex-col gap-2">
+                                                    <button
+                                                        onClick={() => {
+                                                            setEditingGoal(goal);
+                                                            setIsExpanded(false);
+                                                        }}
+                                                        className="p-2 hover:bg-blue-50 text-slate-400 hover:text-blue-500 rounded-xl transition-all duration-500"
+                                                        title="Editar"
+                                                    >
+                                                        <Edit2 size={16} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDelete(goal.id)}
+                                                        className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-xl transition-all duration-500"
+                                                        title="Excluir"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                );
-                            })}
+                                    );
+                                })}
+                            </div>
                         </div>
-                    </div>
-                </div>,
-                document.body
-            )}
+                    </div>,
+                    document.body
+                )
+            }
 
             <style>{`
                 .custom-scrollbar::-webkit-scrollbar {
