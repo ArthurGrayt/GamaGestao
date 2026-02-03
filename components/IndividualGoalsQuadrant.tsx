@@ -49,7 +49,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
 
                 const { data: userData, error } = await supabase
                     .from('users')
-                    .select('username')
+                    .select('username, sector')
                     .eq('user_id', session.user.id)
                     .single();
 
@@ -59,8 +59,12 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                 } else {
                     const authorizedUsers = ['Clárison Gamarano', 'Daiane Gamarano', 'Pedro Borba'];
                     const username = userData.username;
+                    const sector = userData.sector;
                     setCurrentUser(username);
-                    setIsAuthorized(authorizedUsers.includes(username));
+
+                    // Authorize if user is in the list OR from sector 4 (TI)
+                    const isAuthorizedUser = authorizedUsers.includes(username) || sector === 4;
+                    setIsAuthorized(isAuthorizedUser);
                 }
             } catch (err) {
                 console.error('Authorization check error:', err);
