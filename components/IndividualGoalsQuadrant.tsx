@@ -204,6 +204,11 @@ export const IndividualGoalsQuadrant: React.FC = () => {
             return;
         }
 
+        if (!isTypeValid) {
+            alert('Informe um tipo de meta válido antes de salvar.');
+            return;
+        }
+
         const selectedUser = users.find(u => u.username.toLowerCase() === collaboratorNameInput.toLowerCase());
         if (!selectedUser) {
             alert('Colaborador não encontrado. Selecione um usuário da lista.');
@@ -599,7 +604,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
 
                 <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || !isTypeValid}
                     className="w-full bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 hover:shadow-xl hover:-translate-y-0.5 transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     {loading ? <RefreshCw size={14} className="animate-spin" /> : (editingGoal ? <Save size={14} /> : <Plus size={14} />)}
