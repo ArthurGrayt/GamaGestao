@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabase';
-import { ShieldCheck, BarChart3, TrendingUp, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react';
+import { ShieldCheck, BarChart3, TrendingUp, ArrowDownWideNarrow, ArrowUpNarrowWide, ShieldAlert, RefreshCw } from 'lucide-react';
 import { formatCurrency } from '../utils/dateUtils';
 
 interface Management {
@@ -22,7 +22,45 @@ export const ManagementGoalsQuadrant: React.FC = () => {
     const [performances, setPerformances] = useState<ManagementPerformance[]>([]);
     const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
+    // Authorization state
+    const [isAuthorized, setIsAuthorized] = useState(false);
+    const [checkingAuth, setCheckingAuth] = useState(true);
+    const [currentUserName, setCurrentUserName] = useState<string>('');
+
     useEffect(() => {
+        const checkAuthorization = async () => {
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+
+                if (!session) {
+                    setIsAuthorized(false);
+                    return;
+                }
+
+                const { data: userData, error } = await supabase
+                    .from('users')
+                    .select('username, role')
+                    .eq('user_id', session.user.id)
+                    .single();
+
+                if (error || !userData) {
+                    console.error('Error fetching user for auth:', error);
+                    setIsAuthorized(false);
+                } else {
+                    setCurrentUserName(userData.username);
+                    // Authorize only if role level is 7 or higher
+                    setIsAuthorized(Number(userData.role) >= 7);
+                }
+            } catch (err) {
+                console.error('Authorization check error:', err);
+                setIsAuthorized(false);
+            } finally {
+                setCheckingAuth(false);
+            }
+        };
+
+        checkAuthorization();
+
         const fetchData = async () => {
             setLoading(true);
             try {
@@ -99,6 +137,40 @@ export const ManagementGoalsQuadrant: React.FC = () => {
             channels.forEach(ch => supabase.removeChannel(ch));
         };
     }, []);
+
+    if (checkingAuth) {
+        return (
+            <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[450px] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-3">
+                    <RefreshCw size={32} className="text-blue-500 animate-spin" />
+                    <p className="text-sm text-slate-500 font-medium">Verificando permissões...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!isAuthorized) {
+        return (
+            <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[450px] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4 max-w-sm text-center">
+                    <div className="bg-orange-50 text-orange-500 w-16 h-16 rounded-2xl flex items-center justify-center">
+                        <ShieldAlert size={32} />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-bold text-slate-800 mb-2">Acesso Restrito</h3>
+                        <p className="text-sm text-slate-500 leading-relaxed">
+                            Este quadrante está disponível apenas para a gerência e usuários autorizados (Nível 7+).
+                        </p>
+                        {currentUserName && (
+                            <p className="text-xs text-slate-400 mt-3 italic">
+                                Usuário atual: {currentUserName}
+                            </p>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     if (loading) {
         return (

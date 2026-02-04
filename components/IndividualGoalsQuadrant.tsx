@@ -109,11 +109,10 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                 } else {
                     const authorizedUsers = ['Clárison Gamarano', 'Daiane Gamarano', 'Pedro Borba'];
                     const username = userData.username;
-                    const sector = userData.sector;
                     setCurrentUserName(username);
 
-                    // Authorize if user is in the list OR from sector 4 (TI)
-                    const isAuthorizedUser = authorizedUsers.includes(username) || sector === 4;
+                    // Authorize only if user is in the specific whitelist
+                    const isAuthorizedUser = authorizedUsers.includes(username);
                     setIsAuthorized(isAuthorizedUser);
                 }
             } catch (err) {
