@@ -75,6 +75,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
     const goalTypes = ['resultado', 'processo', 'aprendizado', 'qualitativo'];
     const [filteredTypes, setFilteredTypes] = useState<string[]>(goalTypes);
     const [showTypeDropdown, setShowTypeDropdown] = useState(false);
+    const [isTypeValid, setIsTypeValid] = useState(true);
 
     // Authorization state
     const [isAuthorized, setIsAuthorized] = useState(false);
@@ -329,7 +330,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
     // Loading state
     if (checkingAuth) {
         return (
-            <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[450px] flex items-center justify-center">
+            <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[600px] flex items-center justify-center">
                 <div className="flex flex-col items-center gap-3">
                     <RefreshCw size={32} className="text-purple-500 animate-spin" />
                     <p className="text-sm text-slate-500 font-medium">Verificando permissões...</p>
@@ -341,7 +342,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
     // Access denied state
     if (!isAuthorized) {
         return (
-            <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[450px] flex items-center justify-center">
+            <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[600px] flex items-center justify-center">
                 <div className="flex flex-col items-center gap-4 max-w-sm text-center">
                     <div className="bg-orange-50 text-orange-500 w-16 h-16 rounded-2xl flex items-center justify-center">
                         <ShieldAlert size={32} />
@@ -363,7 +364,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
     }
 
     return (
-        <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[450px] flex flex-col relative">
+        <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl shadow-lg shadow-slate-200/50 border border-white/50 h-[600px] flex flex-col relative">
             {/* Header */}
             <div className="flex items-center justify-between mb-4 flex-shrink-0">
                 <div>
@@ -474,7 +475,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                 type="text"
                                 required
                                 autoComplete="off"
-                                className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]"
+                                className={`w-full bg-white/70 border ${!isTypeValid ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-200'} rounded-xl px-3 py-2 text-xs focus:ring-2 ${!isTypeValid ? 'focus:ring-red-500' : 'focus:ring-blue-500'} outline-none transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]`}
                                 placeholder="Pesquisar..."
                                 defaultValue={editingGoal?.type}
                                 key={`type-${editingGoal?.id || 'new'}`}
@@ -483,13 +484,22 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                     const filtered = goalTypes.filter(t => t.toLowerCase().includes(value));
                                     setFilteredTypes(filtered);
                                     setShowTypeDropdown(true);
+                                    setIsTypeValid(goalTypes.includes(value));
                                 }}
                                 onFocus={() => {
                                     setFilteredTypes(goalTypes);
                                     setShowTypeDropdown(true);
                                 }}
-                                onBlur={() => setTimeout(() => setShowTypeDropdown(false), 200)}
+                                onBlur={(e) => {
+                                    setTimeout(() => setShowTypeDropdown(false), 200);
+                                    setIsTypeValid(goalTypes.includes(e.target.value.toLowerCase()));
+                                }}
                             />
+                            {!isTypeValid && (
+                                <p className="text-[9px] text-red-500 font-bold mt-1 ml-1 animate-in fade-in slide-in-from-top-1">
+                                    Informe um tipo de meta válido
+                                </p>
+                            )}
                             {showTypeDropdown && (
                                 <div className="absolute top-full left-0 w-full mt-2 bg-white/90 backdrop-blur-md border border-slate-200 rounded-xl shadow-xl max-h-[120px] overflow-y-auto z-50 custom-scrollbar animate-in fade-in zoom-in-95 duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]">
                                     {filteredTypes.length > 0 ? (
@@ -501,6 +511,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                                     const input = document.querySelector('input[name="type"]') as HTMLInputElement;
                                                     if (input) {
                                                         input.value = type;
+                                                        setIsTypeValid(true);
                                                     }
                                                     setShowTypeDropdown(false);
                                                 }}
@@ -524,24 +535,37 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                     const inputValue = (document.querySelector('input[name="collaborator"]') as HTMLInputElement)?.value || editingGoal?.collaboratorName || '';
                     const selectedUser = users.find(u => u.username.toLowerCase() === inputValue.toLowerCase());
                     const sectorName = selectedUser?.sector_name?.toLowerCase();
-                    const activities = sectorName ? SECTOR_ACTIVITIES[sectorName] : [];
+                    const activities = (sectorName && SECTOR_ACTIVITIES[sectorName]) || [];
 
-                    if (!selectedUser || !sectorName || !activities.length) return null;
+                    if (!selectedUser) return null;
 
+                    // If we have activities using the new logic
+                    if (sectorName && activities.length > 0) {
+                        return (
+                            <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-3 mb-3 animate-in fade-in slide-in-from-top-2 duration-500">
+                                <h4 className="text-[10px] font-bold text-blue-700 uppercase flex items-center gap-1.5 mb-2">
+                                    <Briefcase size={12} />
+                                    Atividades do Setor: <span className="text-blue-600 font-extrabold">{selectedUser.sector_name}</span>
+                                </h4>
+                                <ul className="space-y-1">
+                                    {activities.map((activity, i) => (
+                                        <li key={i} className="flex items-start gap-1.5 text-[10px] text-slate-600 leading-tight">
+                                            <ListChecks size={10} className="text-blue-400 mt-0.5 flex-shrink-0" />
+                                            <span>{activity}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        );
+                    }
+
+                    // Fallback for user without sector or unmapped activities
                     return (
-                        <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-3 mb-3 animate-in fade-in slide-in-from-top-2 duration-500">
-                            <h4 className="text-[10px] font-bold text-blue-700 uppercase flex items-center gap-1.5 mb-2">
-                                <Briefcase size={12} />
-                                Atividades do Setor: <span className="text-blue-600 font-extrabold">{selectedUser.sector_name}</span>
-                            </h4>
-                            <ul className="space-y-1">
-                                {activities.map((activity, i) => (
-                                    <li key={i} className="flex items-start gap-1.5 text-[10px] text-slate-600 leading-tight">
-                                        <ListChecks size={10} className="text-blue-400 mt-0.5 flex-shrink-0" />
-                                        <span>{activity}</span>
-                                    </li>
-                                ))}
-                            </ul>
+                        <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-3 mb-3 animate-in fade-in slide-in-from-top-2 duration-500 flex items-center justify-center">
+                            <p className="text-[10px] font-medium text-amber-600/80 italic flex items-center gap-2">
+                                <ShieldAlert size={12} />
+                                Colaborador sem setor. Funções não encontradas.
+                            </p>
                         </div>
                     );
                 })()}
