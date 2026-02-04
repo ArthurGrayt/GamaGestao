@@ -1,26 +1,71 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../services/supabase';
-import { User, Plus, Edit2, Trash2, Target, ChevronRight, Save, X, CheckCircle2, Circle, RefreshCw, Info, ChevronDown, Maximize2, ShieldAlert } from 'lucide-react';
+import { User, Plus, Edit2, Trash2, Target, ChevronRight, Save, X, CheckCircle2, Circle, RefreshCw, Info, ChevronDown, Maximize2, ShieldAlert, Briefcase, ListChecks } from 'lucide-react';
+
+const SECTOR_ACTIVITIES: Record<string, string[]> = {
+    'administrativo': [
+        'Gestão de Recursos Humanos',
+        'Administração Financeira e Orçamentária',
+        'Gestão de Materiais e Logística',
+        'Arquivos, Registros e Documentação',
+        'Elaboração e Implementação de Políticas Internas'
+    ],
+    'medicina ocupacional': [
+        'Realização de exames ocupacionais',
+        'Prevenção de doenças e acidentes',
+        'Avaliação de riscos e ambiente de trabalho'
+    ],
+    'segurança do trabalho': [
+        'Identificar e prevenir riscos no ambiente de trabalho',
+        'Elaborar e aplicar normas de segurança',
+        'Realizar treinamentos e palestras',
+        'Investigar acidentes e propor melhorias',
+        'Garantir o cumprimento das leis e normas regulamentadoras (NRs)'
+    ],
+    'tecnologia da informação': [
+        'Manutenção de computadores, redes e sistemas',
+        'Suporte técnico aos usuários',
+        'Desenvolvimento e atualização de softwares e sistemas',
+        'Gestão da segurança da informação',
+        'Backup e proteção de dados'
+    ],
+    'comercial': [
+        'Prospecção e atendimento de clientes',
+        'Elaboração de propostas e contratos',
+        'Negociação de preços e condições',
+        'Acompanhamento pós-venda',
+        'Análise de mercado e metas de vendas'
+    ]
+};
+
+interface ComponentUser {
+    id: string; // db: user_id
+    username: string;
+    sector_name?: string;
+}
 
 interface IndividualGoal {
-    id: string;
-    collaborator: string; // db: colaborador
+    id: number; // db: id_meta (Changed to number based on probe)
+    destinatario_id: string; // ID of the collaborator (assignee)
+    remetente_id: string;    // ID of the creator (assigner)
+    collaboratorName: string; // Display name for UI only
     objective: string;    // db: descricao
     type: string;         // db: tipo
     created_at?: string;  // db: created_at
     deadline?: string;    // db: data_limite
+    data_entregue?: string | null; // db: data_entregue
     targetValue?: number;
     currentValue: number;
     isCompleted: boolean;
 }
 
 export const IndividualGoalsQuadrant: React.FC = () => {
-    const [users, setUsers] = useState<string[]>([]);
+    const [users, setUsers] = useState<ComponentUser[]>([]);
     const [goals, setGoals] = useState<IndividualGoal[]>([]);
     const [loading, setLoading] = useState(false);
     const [showSuggestions, setShowSuggestions] = useState(false);
-    const [filteredUsers, setFilteredUsers] = useState<string[]>([]);
+    const [filteredUsers, setFilteredUsers] = useState<ComponentUser[]>([]);
     const formRef = useRef<HTMLFormElement>(null);
 
     const [editingGoal, setEditingGoal] = useState<IndividualGoal | null>(null);
@@ -34,7 +79,8 @@ export const IndividualGoalsQuadrant: React.FC = () => {
     // Authorization state
     const [isAuthorized, setIsAuthorized] = useState(false);
     const [checkingAuth, setCheckingAuth] = useState(true);
-    const [currentUser, setCurrentUser] = useState<string>('');
+    const [currentUserName, setCurrentUserName] = useState<string>('');
+    const [currentUserId, setCurrentUserId] = useState<string>('');
 
     // Check authorization
     useEffect(() => {
@@ -47,6 +93,8 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                     setCheckingAuth(false);
                     return;
                 }
+
+                setCurrentUserId(session.user.id);
 
                 const { data: userData, error } = await supabase
                     .from('users')
@@ -61,7 +109,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                     const authorizedUsers = ['Clárison Gamarano', 'Daiane Gamarano', 'Pedro Borba'];
                     const username = userData.username;
                     const sector = userData.sector;
-                    setCurrentUser(username);
+                    setCurrentUserName(username);
 
                     // Authorize if user is in the list OR from sector 4 (TI)
                     const isAuthorizedUser = authorizedUsers.includes(username) || sector === 4;
@@ -82,35 +130,54 @@ export const IndividualGoalsQuadrant: React.FC = () => {
         const fetchUserData = async () => {
             setLoading(true);
             try {
-                // Fetch Users for autocomplete
+                // Fetch Users for autocomplete with IDs
                 const { data: userData, error: userError } = await supabase
                     .from('users')
-                    .select('username')
+                    .select('user_id, username, sector ( sector_name )')
                     .order('username');
 
                 if (userError) throw userError;
+
+                let loadedUsers: ComponentUser[] = [];
                 if (userData) {
-                    setUsers(userData.map(u => u.username));
+                    loadedUsers = userData.map(u => {
+                        const s = u.sector as any;
+                        return {
+                            id: u.user_id,
+                            username: u.username,
+                            sector_name: Array.isArray(s) ? s[0]?.sector_name : s?.sector_name
+                        };
+                    });
+                    setUsers(loadedUsers);
                 }
 
                 // Fetch existing goals from Supabase
                 const { data: goalData, error: goalError } = await supabase
                     .from('metas_usuarios')
-                    .select('id, colaborador, descricao, tipo, created_at, data_limite')
+                    .select('id_meta, destinatario_id, remetente_id, descricao, tipo, created_at, data_limite, data_entregue')
                     .order('created_at', { ascending: false });
 
                 if (goalError) throw goalError;
                 if (goalData) {
-                    const mappedGoals: IndividualGoal[] = goalData.map(g => ({
-                        id: g.id,
-                        collaborator: g.colaborador,
-                        objective: g.descricao,
-                        type: g.tipo,
-                        created_at: g.created_at,
-                        deadline: g.data_limite,
-                        currentValue: 0,
-                        isCompleted: false
-                    }));
+                    const mappedGoals: IndividualGoal[] = goalData.map(g => {
+                        // Find collaborator name from loaded Users
+                        const collaboratorUser = loadedUsers.find(u => u.id === g.destinatario_id);
+                        const collaboratorName = collaboratorUser ? collaboratorUser.username : 'Desconhecido';
+
+                        return {
+                            id: g.id_meta, // Map id_meta to id
+                            destinatario_id: g.destinatario_id,
+                            remetente_id: g.remetente_id,
+                            collaboratorName: collaboratorName,
+                            objective: g.descricao,
+                            type: g.tipo,
+                            created_at: g.created_at,
+                            deadline: g.data_limite,
+                            data_entregue: g.data_entregue,
+                            currentValue: 0,
+                            isCompleted: !!g.data_entregue
+                        };
+                    });
                     setGoals(mappedGoals);
                 }
             } catch (err) {
@@ -119,26 +186,31 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                 setLoading(false);
             }
         };
+
         fetchUserData();
     }, []);
-
-    // No longer using localStorage as primary storage
-    /* 
-    useEffect(() => {
-        localStorage.setItem('gama_individual_goals', JSON.stringify(goals));
-    }, [goals]);
-    */
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
         const formData = new FormData(e.currentTarget as HTMLFormElement);
-        const collaborator = formData.get('collaborator') as string;
+        const collaboratorNameInput = formData.get('collaborator') as string;
         const objective = formData.get('objective') as string;
         const type = formData.get('type') as string;
         const deadline = formData.get('deadline') as string;
 
-        if (!collaborator || !objective || !type) {
+        if (!collaboratorNameInput || !objective || !type) {
             alert('Preencha todos os campos obrigatórios.');
+            return;
+        }
+
+        const selectedUser = users.find(u => u.username.toLowerCase() === collaboratorNameInput.toLowerCase());
+        if (!selectedUser) {
+            alert('Colaborador não encontrado. Selecione um usuário da lista.');
+            return;
+        }
+
+        if (!currentUserId) {
+            alert('Erro de autenticação. Recarregue a página.');
             return;
         }
 
@@ -148,24 +220,34 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                 const { error } = await supabase
                     .from('metas_usuarios')
                     .update({
-                        colaborador: collaborator,
+                        destinatario_id: selectedUser.id,
                         descricao: objective,
                         tipo: type,
                         data_limite: deadline || null
                     })
-                    .eq('id', editingGoal.id);
+                    .eq('id_meta', editingGoal.id);
 
                 if (error) throw error;
 
                 setGoals(prev => prev.map(g => g.id === editingGoal.id ? {
-                    ...g, collaborator, objective, type, deadline: deadline || undefined
+                    ...g,
+                    destinatario_id: selectedUser.id,
+                    collaboratorName: selectedUser.username,
+                    objective,
+                    type,
+                    deadline: deadline || undefined
                 } : g));
                 setEditingGoal(null);
             } else {
+                // Generate a random ID for id_meta (assuming integer)
+                const newIdMeta = Math.floor(Math.random() * 2147483647); // Safe integer range
+
                 const { data, error } = await supabase
                     .from('metas_usuarios')
                     .insert([{
-                        colaborador: collaborator,
+                        id_meta: newIdMeta,
+                        destinatario_id: selectedUser.id,
+                        remetente_id: currentUserId,
                         descricao: objective,
                         tipo: type,
                         data_limite: deadline || null
@@ -177,14 +259,17 @@ export const IndividualGoalsQuadrant: React.FC = () => {
 
                 if (data) {
                     setGoals(prev => [{
-                        id: data.id,
-                        collaborator: data.colaborador,
+                        id: data.id_meta,
+                        destinatario_id: data.destinatario_id,
+                        remetente_id: data.remetente_id,
+                        collaboratorName: selectedUser.username,
                         objective: data.descricao,
                         type: data.tipo,
                         created_at: data.created_at,
                         deadline: data.data_limite,
+                        data_entregue: data.data_entregue,
                         currentValue: 0,
-                        isCompleted: false
+                        isCompleted: !!data.data_entregue
                     }, ...prev]);
                 }
             }
@@ -197,13 +282,13 @@ export const IndividualGoalsQuadrant: React.FC = () => {
         }
     };
 
-    const handleDelete = async (id: string) => {
+    const handleDelete = async (id: number) => {
         setLoading(true);
         try {
             const { error } = await supabase
                 .from('metas_usuarios')
                 .delete()
-                .eq('id', id);
+                .eq('id_meta', id);
 
             if (error) throw error;
 
@@ -217,9 +302,28 @@ export const IndividualGoalsQuadrant: React.FC = () => {
         }
     };
 
-    const toggleGoalStatus = (id: string) => {
-        // Since is_completed is not in DB yet, this will only be local
-        setGoals(prev => prev.map(g => g.id === id ? { ...g, isCompleted: !g.isCompleted } : g));
+    const toggleGoalStatus = async (id: number, currentStatus: boolean) => {
+        const newStatus = !currentStatus;
+        const newDataEntregue = newStatus ? new Date().toISOString() : null;
+
+        setGoals(prev => prev.map(g => g.id === id ? { ...g, isCompleted: newStatus, data_entregue: newDataEntregue || undefined } : g));
+
+        try {
+            const { error } = await supabase
+                .from('metas_usuarios')
+                .update({
+                    data_entregue: newDataEntregue
+                })
+                .eq('id_meta', id);
+
+            if (error) {
+                setGoals(prev => prev.map(g => g.id === id ? { ...g, isCompleted: currentStatus, data_entregue: currentStatus ? (g.data_entregue) : null } : g));
+                throw error;
+            }
+        } catch (err) {
+            console.error('Error updating goal status:', err);
+            alert('Erro ao atualizar status da meta.');
+        }
     };
 
     // Loading state
@@ -247,9 +351,9 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                         <p className="text-sm text-slate-500 leading-relaxed">
                             Este quadrante está disponível apenas para usuários autorizados a atribuir metas individuais.
                         </p>
-                        {currentUser && (
+                        {currentUserName && (
                             <p className="text-xs text-slate-400 mt-3 italic">
-                                Usuário atual: {currentUser}
+                                Usuário atual: {currentUserName}
                             </p>
                         )}
                     </div>
@@ -301,11 +405,11 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                 autoComplete="off"
                                 className="w-full bg-white/70 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]"
                                 placeholder="Pesquisar..."
-                                defaultValue={editingGoal?.collaborator || ''}
+                                defaultValue={editingGoal?.collaboratorName || ''}
                                 key={editingGoal?.id || 'new'}
                                 onChange={(e) => {
                                     const value = e.target.value.toLowerCase();
-                                    const filtered = users.filter(u => u.toLowerCase().includes(value));
+                                    const filtered = users.filter(u => u.username.toLowerCase().includes(value));
                                     setFilteredUsers(filtered);
                                     setShowSuggestions(true);
                                 }}
@@ -316,22 +420,21 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                 onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} // Delay to allow click
                             />
                             {showSuggestions && (
-                                <div className="absolute top-full left-0 w-full mt-2 bg-white/90 backdrop-blur-md border border-slate-200 rounded-xl shadow-xl max-h-[120px] overflow-y-auto z-50 custom-scrollbar animate-in fade-in zoom-in-95 duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]">
+                                <div className="absolute top-full left-0 w-full mt-2 bg-white/90 backdrop-blur-md border border-slate-200 rounded-xl shadow-xl max-h-[120px] overflow-y-auto z-50 custom-scrollbar animate-in fade-in zoom-in-95 duration-500 ease-[cubic-bezier(0,4,0,0.2,1)]">
                                     {filteredUsers.length > 0 ? (
                                         filteredUsers.map(user => (
                                             <div
-                                                key={user}
+                                                key={user.id}
                                                 className="px-3 py-2 text-xs text-slate-700 hover:bg-blue-50 cursor-pointer transition-colors border-b border-slate-100/50 last:border-0"
                                                 onClick={() => {
                                                     const input = document.querySelector('input[name="collaborator"]') as HTMLInputElement;
                                                     if (input) {
-                                                        input.value = user;
-                                                        // Trigger change event if needed for React form handling, though uncontrolled here
+                                                        input.value = user.username;
                                                     }
                                                     setShowSuggestions(false);
                                                 }}
                                             >
-                                                {user}
+                                                {user.username}
                                             </div>
                                         ))
                                     ) : (
@@ -342,6 +445,8 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                 </div>
                             )}
                         </div>
+
+
                     </div>
                     <div className="space-y-1.5">
                         <div className="h-4 flex items-center gap-1 ml-1 relative group/tooltip">
@@ -414,6 +519,33 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                     </div>
                 </div>
 
+                {/* Sector Activities Card (Full Width) */}
+                {(editingGoal?.collaboratorName || (formRef.current?.querySelector('[name="collaborator"]') as HTMLInputElement)?.value) && (() => {
+                    const inputValue = (document.querySelector('input[name="collaborator"]') as HTMLInputElement)?.value || editingGoal?.collaboratorName || '';
+                    const selectedUser = users.find(u => u.username.toLowerCase() === inputValue.toLowerCase());
+                    const sectorName = selectedUser?.sector_name?.toLowerCase();
+                    const activities = sectorName ? SECTOR_ACTIVITIES[sectorName] : [];
+
+                    if (!selectedUser || !sectorName || !activities.length) return null;
+
+                    return (
+                        <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-3 mb-3 animate-in fade-in slide-in-from-top-2 duration-500">
+                            <h4 className="text-[10px] font-bold text-blue-700 uppercase flex items-center gap-1.5 mb-2">
+                                <Briefcase size={12} />
+                                Atividades do Setor: <span className="text-blue-600 font-extrabold">{selectedUser.sector_name}</span>
+                            </h4>
+                            <ul className="space-y-1">
+                                {activities.map((activity, i) => (
+                                    <li key={i} className="flex items-start gap-1.5 text-[10px] text-slate-600 leading-tight">
+                                        <ListChecks size={10} className="text-blue-400 mt-0.5 flex-shrink-0" />
+                                        <span>{activity}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    );
+                })()}
+
                 <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                         <label className="text-[9px] font-bold text-slate-400 uppercase ml-1">Objetivo (Meta)</label>
@@ -449,10 +581,10 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                     {loading ? <RefreshCw size={14} className="animate-spin" /> : (editingGoal ? <Save size={14} /> : <Plus size={14} />)}
                     {editingGoal ? 'Salvar Alterações' : 'Adicionar Meta'}
                 </button>
-            </form>
+            </form >
 
             {/* View Goals Section (Always Visible) */}
-            <div className="flex-1 flex flex-col min-h-0">
+            < div className="flex-1 flex flex-col min-h-0" >
                 <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-white/50 rounded-t-2xl">
                     <p className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
                         <Target size={12} className="text-purple-500" />
@@ -483,7 +615,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                 <div className="flex justify-between items-center gap-3">
                                     <div className="flex items-center gap-3 min-w-0">
                                         <div
-                                            onClick={() => toggleGoalStatus(goal.id)}
+                                            onClick={() => toggleGoalStatus(goal.id, goal.isCompleted)}
                                             className={`w-8 h-8 rounded-xl bg-gradient-to-br ${goal.isCompleted ? 'from-emerald-400 to-emerald-600' : color} flex items-center justify-center text-white shadow-sm transition-all flex-shrink-0 cursor-pointer`}
                                         >
                                             {goal.isCompleted ? <CheckCircle2 size={14} /> : <User size={14} />}
@@ -495,7 +627,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                             <div className="flex items-center gap-1.5 mt-0.5">
                                                 <span className="text-[9px] font-medium text-slate-400">{goal.type}</span>
                                                 <span className="w-0.5 h-0.5 rounded-full bg-slate-300" />
-                                                <span className="text-[9px] font-bold text-slate-400 uppercase truncate max-w-[60px]">{goal.collaborator}</span>
+                                                <span className="text-[9px] font-bold text-slate-400 uppercase truncate max-w-[60px]">{goal.collaboratorName}</span>
                                                 {goal.deadline && (
                                                     <>
                                                         <span className="w-0.5 h-0.5 rounded-full bg-slate-300" />
@@ -584,7 +716,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                             <div className="flex items-start justify-between gap-4">
                                                 <div className="flex items-start gap-4 flex-1">
                                                     <div
-                                                        onClick={() => toggleGoalStatus(goal.id)}
+                                                        onClick={() => toggleGoalStatus(goal.id, goal.isCompleted)}
                                                         className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${goal.isCompleted ? 'from-emerald-400 to-emerald-600' : color} flex items-center justify-center text-white shadow-lg transition-all flex-shrink-0 cursor-pointer hover:scale-110 active:scale-95`}
                                                     >
                                                         {goal.isCompleted ? <CheckCircle2 size={24} /> : <User size={24} />}
@@ -595,7 +727,7 @@ export const IndividualGoalsQuadrant: React.FC = () => {
                                                         </p>
                                                         <div className="flex flex-wrap items-center gap-2 mt-2">
                                                             <span className="px-2 py-0.5 rounded-full bg-slate-100 text-[10px] font-bold text-slate-500 uppercase tracking-wider">{goal.type}</span>
-                                                            <span className="px-2 py-0.5 rounded-full bg-purple-50 text-[10px] font-bold text-purple-600 uppercase tracking-wider">{goal.collaborator}</span>
+                                                            <span className="px-2 py-0.5 rounded-full bg-purple-50 text-[10px] font-bold text-purple-600 uppercase tracking-wider">{goal.collaboratorName}</span>
                                                             {goal.created_at && (
                                                                 <span className="text-[10px] font-medium text-slate-400 italic">
                                                                     Criado em: {new Date(goal.created_at).toLocaleDateString('pt-BR')}
